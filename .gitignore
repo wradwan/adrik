@@ -3,3 +3,4 @@
 supabase/.temp/
 node_modules/
 .DS_Store
+docs/*.xlsx
