@@ -1,0 +1,7 @@
+project_id = "adrik"
+
+[functions.scout]
+verify_jwt = true
+
+[functions.guide]
+verify_jwt = true
