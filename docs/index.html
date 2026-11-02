@@ -74,6 +74,10 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
 :root[lang="ar"] .prayer .ar{font-family:var(--display);font-size:22px}
 :root[lang="ar"] .hero .v,:root[lang="ar"] .alt .t{direction:ltr;unicode-bidi:isolate}
 :root[dir="rtl"] .hero .v,:root[dir="rtl"] .alt .t{text-align:right}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 12px;border-radius:14px;background:var(--line)}
+.tabs button{border:0;border-radius:10px;padding:10px 8px;font:inherit;font-size:14.5px;font-weight:600;color:var(--muted);background:transparent;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(15,61,46,.12)}
+.tabs button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:no-preference){.card{transition:opacity .25s}.card.loading{opacity:.55}}
 @media (min-width:640px){body{max-width:520px;margin:0 auto}}
@@ -97,6 +101,10 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
   <div class="adhan" id="pAdhan"></div>
 </div>
 
+<div class="tabs" role="tablist" aria-label="Recommend by">
+  <button type="button" role="tab" data-sort="nearest" aria-selected="true" data-i18n="tabNearest">Nearest mosque</button>
+  <button type="button" role="tab" data-sort="iqama" aria-selected="false" data-i18n="tabIqama">Earliest iqama</button>
+</div>
 <div class="missed" id="missed" hidden></div>
 <section class="card loading" id="card" aria-live="polite">
   <p class="m" id="mName" data-i18n="locating">Locating you…</p>
@@ -141,7 +149,7 @@ const PRAYER = {
 };
 const T = {
   en: {
-    finding:"Finding your jama'ah", locating:"Locating you…", locatingSub:"Nearby mosques and today's iqama times.",
+    finding:"Finding your jama'ah", tabNearest:"Nearest mosque", tabIqama:"Earliest iqama", locating:"Locating you…", locatingSub:"Nearby mosques and today's iqama times.",
     go:"Go — open in Google Maps", refresh:"Refresh", driving:"Driving", walking:"Walking", bicycling:"Bike", transit:"Transit",
     wudu:"I have wudu", others:"Other jama'ahs you can reach", proto:"Prototype · iqama data from mosque websites", demo:"Use demo location (Mississauga)",
     iqama:"Iqama", leaveBy:"Leave by", tomorrow:"tomorrow", now:"now",
@@ -160,7 +168,7 @@ const T = {
     meta:(ap,c,w,d)=>`${ap?"Approximate location (from your network) · ":""}${c} mosques within 5 km · ${w} with iqama data · ${d}`,
   },
   ar: {
-    finding:"نبحث عن أقرب جماعة", locating:"نحدد موقعك…", locatingSub:"المساجد القريبة وأوقات الإقامة اليوم.",
+    finding:"نبحث عن أقرب جماعة", tabNearest:"أقرب مسجد", tabIqama:"أقرب إقامة", locating:"نحدد موقعك…", locatingSub:"المساجد القريبة وأوقات الإقامة اليوم.",
     go:"انطلق — خرائط Google", refresh:"تحديث", driving:"سيارة", walking:"مشياً", bicycling:"دراجة", transit:"مواصلات",
     wudu:"أنا على وضوء", others:"جماعات أخرى يمكنك إدراكها", proto:"نسخة تجريبية · أوقات الإقامة من مواقع المساجد", demo:"استخدم موقعاً تجريبياً (ميسيساغا)",
     iqama:"الإقامة", leaveBy:"انطلق قبل", tomorrow:"غداً", now:"الآن",
@@ -179,14 +187,16 @@ const T = {
     meta:(ap,c,w,d)=>`${ap?"موقع تقريبي (من شبكتك) · ":""}${c} مسجداً ضمن 5 كم · ${w} لديها أوقات إقامة · ${d}`,
   },
 };
-let pos = null, mode = "driving", wudu = false, lang = "en", last = null;
+let pos = null, mode = "driving", wudu = false, lang = "en", last = null, sortBy = "nearest";
 const $ = (id) => document.getElementById(id);
 
+try { sortBy = localStorage.getItem("adrik.sort") === "iqama" ? "iqama" : "nearest"; } catch {}
 try { mode = localStorage.getItem("adrik.mode") || mode; wudu = localStorage.getItem("adrik.wudu") === "1"; lang = localStorage.getItem("adrik.lang") || ((navigator.language || "").startsWith("ar") ? "ar" : "en"); } catch {}
 if (!["driving","walking","bicycling","transit"].includes(mode)) mode = "driving";
 if (!["en","ar"].includes(lang)) lang = "en";
 document.querySelectorAll("#modes button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
 $("wudu").setAttribute("aria-pressed", String(wudu));
+document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.sort === sortBy)));
 
 const t = () => T[lang];
 // Times come from the engine as "6:15 am" / "6:15 am tomorrow".
@@ -225,7 +235,7 @@ async function run() {
   if (!pos) { const p = await locate(); if (my !== seq) return; pos = p; }
   if (!pos) { $("mName").textContent = t().noLoc; $("mSub").textContent = t().noLocSub; $("card").classList.remove("loading"); return; }
   try {
-    const r = await fetch(API, {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+ANON}, body: JSON.stringify({lat:pos.lat, lng:pos.lng, mode, has_wudu:wudu})});
+    const r = await fetch(API, {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+ANON}, body: JSON.stringify({lat:pos.lat, lng:pos.lng, mode, has_wudu:wudu, sort:sortBy})});
     const d = await r.json();
     if (my !== seq) return;
     if (d.error) throw new Error(d.error);
@@ -289,6 +299,11 @@ function render(d) {
 document.querySelectorAll("#modes button").forEach(b => b.addEventListener("click", () => {
   mode = b.dataset.mode; try { localStorage.setItem("adrik.mode", mode); } catch {}
   document.querySelectorAll("#modes button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  run();
+}));
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+  sortBy = b.dataset.sort; try { localStorage.setItem("adrik.sort", sortBy); } catch {}
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", String(x === b)));
   run();
 }));
 document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => {

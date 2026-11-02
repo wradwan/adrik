@@ -1,6 +1,7 @@
 // Adrik Guide — the decision engine. Deterministic; no LLM.
 // POST { lat, lng, mode?: "driving"|"walking"|"bicycling"|"transit", has_wudu?: bool, wudu_min?: 5, parking_min?: 3,
-//        radius_m?: 5000, madhhab?: "standard"|"hanafi", prayer?: "fajr"|..., at?: ISO datetime (for testing) }
+//        radius_m?: 5000, madhhab?: "standard"|"hanafi", prayer?: "fajr"|..., at?: ISO datetime (for testing),
+//        sort?: "nearest" (default: closest mosque you can still catch) | "iqama" (earliest catchable iqama, weighted score) }
 // Returns { prayer, adhan, now, recommendation, alternatives, note }
 // Secrets: GOOGLE_MAPS_API_KEY (optional — falls back to distance-based ETA)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -77,6 +78,7 @@ Deno.serve(async (req) => {
     const wudu = b.has_wudu ? 0 : (b.wudu_min ?? 5);
     const parking = mode === "driving" ? (b.parking_min ?? 3) : mode === "bicycling" ? 1 : 0; // 1 min to lock a bike
     const radius = b.radius_m ?? 5000;
+    const sortBy: "nearest" | "iqama" = b.sort === "iqama" ? "iqama" : "nearest";
     const now = b.at ? new Date(b.at) : new Date();
     const { date, mins: nowM } = localParts(now, TZ);
     const ad = adhanTimes(lat, lng, now, b.madhhab ?? "standard");
@@ -171,12 +173,13 @@ Deno.serve(async (req) => {
       const affinity = s.c.mosque.id === b.home_mosque_id ? 1 : 0;
       s.score = W.earliest * earliest + W.slack * slackScore + W.trust * s.trust + W.travel * travelScore + W.affinity * affinity;
     }
-    pool.sort((a, b2) => (b2.score ?? 0) - (a.score ?? 0));
+    if (sortBy === "nearest") pool.sort((a, b2) => a.travel - b2.travel || a.dist - b2.dist || a.c.iqama - b2.c.iqama);
+    else pool.sort((a, b2) => (b2.score ?? 0) - (a.score ?? 0));
     return { pool, uniq, noData, windowEnd };
     }
 
     const base = { prayer, day: offset === 1 ? "tomorrow" : "today", date: ctx.dateStr, now: fmt(nowM), adhan: fmtD(ctx.ad[prayer] + ctx.shift), window_end: fmtD(windowEnd),
-      missed: lastSkipped ?? null, eta_source: GKEY ? "google_routes" : "estimate", candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData };
+      missed: lastSkipped ?? null, sort: sortBy, eta_source: GKEY ? "google_routes" : "estimate", candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData };
 
     if (!pool.length) return json({ ...base, recommendation: null, alternatives: [], note: `${skipNote}No iqama data for ${cap(prayer)} within ${radius / 1000} km.` });
 
