@@ -86,9 +86,14 @@ Deno.serve(async (req) => {
     const startPrayer: Prayer = b.prayer ?? PRAYERS.find((p) => nowM >= windows[p][0] && nowM < windows[p][1]) ?? PRAYERS.find((p) => ad[p] > nowM) ?? "fajr";
 
     const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: ms, error } = await db.rpc("mosques_in_radius", { lat, lng, radius_m: radius });
+    const communities: string[] = Array.isArray(b.communities) && b.communities.length ? b.communities : ["sunni"];
+    const { data: msAll, error } = await db.rpc("mosques_in_radius_v2", { lat, lng, radius_m: radius, communities });
     if (error) throw error;
-    const ids = (ms ?? []).map((m: { id: string }) => m.id);
+    // Jumu'ah-only places (e.g. a workplace musalla) are candidates on Friday Dhuhr only.
+    const isFriday = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(now) === "Fri";
+    const ms = (msAll ?? []).filter((m: Mosque) => !m.jumuah_only);
+    const msJumuah = isFriday ? (msAll ?? []) : ms;
+    const ids = (msAll ?? []).map((m: { id: string }) => m.id);
 
     // Day context: today (offset 0) or tomorrow (offset 1). Times stay in minutes relative to today's midnight.
     const tomorrow = new Date(now.getTime() + 864e5);
@@ -125,7 +130,7 @@ Deno.serve(async (req) => {
     ]);
 
     const cands: Cand[] = [];
-    for (const m of ms ?? []) {
+    for (const m of (prayer === "dhuhr" ? msJumuah : ms)) {
       const mr = (rows ?? []).filter((r: { mosque_id: string; quarantined: boolean }) => r.mosque_id === m.id && !r.quarantined);
       if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "table" }); continue; }
       const rule = (rules ?? []).find((r: { mosque_id: string }) => r.mosque_id === m.id);
