@@ -90,38 +90,53 @@ Deno.serve(async (req) => {
     if (error) throw error;
     const ids = (ms ?? []).map((m: { id: string }) => m.id);
 
-    // Evaluate the current prayer; if every jama'ah is already more than 10 min gone, roll forward to the next prayer today.
-    let prayer = startPrayer, skipped: Prayer[] = [];
-    let ev = await evaluate(prayer);
+    // Day context: today (offset 0) or tomorrow (offset 1). Times stay in minutes relative to today's midnight.
+    const tomorrow = new Date(now.getTime() + 864e5);
+    const adT = adhanTimes(lat, lng, tomorrow, b.madhhab ?? "standard");
+    const dayCtx = (offset: 0 | 1) => offset === 0
+      ? { dateStr: date, dateObj: now, ad, windows, shift: 0 }
+      : { dateStr: localParts(tomorrow, TZ).date, dateObj: tomorrow, ad: adT, shift: 1440,
+          windows: { fajr: [adT.fajr, adT.sunrise], dhuhr: [adT.dhuhr, adT.asr], asr: [adT.asr, adT.maghrib], maghrib: [adT.maghrib, adT.isha], isha: [adT.isha, 1440 + adT.fajr] } as Record<Prayer, [number, number]> };
+
+    // Walk forward from the current prayer: today's remaining prayers, then tomorrow's Fajr.
+    // A jama'ah more than 10 min gone counts as missed, and we move on.
+    const seq: { prayer: Prayer; offset: 0 | 1 }[] = [...PRAYERS.slice(PRAYERS.indexOf(startPrayer)).map((p) => ({ prayer: p, offset: 0 as const })), { prayer: "fajr", offset: 1 as const }];
     const allGone = (p: Scored[]) => p.length > 0 && !p.some((s) => s.feasible) && p[0].slack < -10;
-    while (!b.prayer && (ev.pool.length === 0 || allGone(ev.pool))) {
-      const next = PRAYERS[PRAYERS.indexOf(prayer) + 1];
-      if (!next) break;
-      skipped.push(prayer); prayer = next; ev = await evaluate(prayer);
+    let i = 0, prayer = startPrayer, offset: 0 | 1 = 0, skipped: Prayer[] = [];
+    let ev = await evaluate(seq[0].prayer, seq[0].offset);
+    while (!b.prayer && (ev.pool.length === 0 || allGone(ev.pool)) && i < seq.length - 1) {
+      if (ev.pool.length) skipped.push(seq[i].prayer);
+      i++; prayer = seq[i].prayer; offset = seq[i].offset;
+      ev = await evaluate(prayer, offset);
     }
     const { pool, uniq, noData, windowEnd } = ev;
-    const skipNote = skipped.length ? `${skipped.map((p) => p[0].toUpperCase() + p.slice(1)).join(", ")} jama'ah has passed nearby. ` : "";
+    const ctx = dayCtx(offset);
+    const cap = (p: string) => p[0].toUpperCase() + p.slice(1);
+    const lastSkipped = skipped.at(-1);
+    const skipNote = lastSkipped ? `${cap(lastSkipped)} jama'ah has passed at every nearby mosque — pray ${cap(lastSkipped)} where you are. ` : "";
+    const fmtD = (mins: number) => fmt(mins) + (offset === 1 ? " tomorrow" : "");
 
-    async function evaluate(prayer: Prayer) {
-    const windowEnd = windows[prayer][1];
+    async function evaluate(prayer: Prayer, offset: 0 | 1) {
+    const { dateStr, dateObj, windows: win, shift } = dayCtx(offset);
+    const windowEnd = win[prayer][1] + shift;
     const [{ data: rows }, { data: rules }] = await Promise.all([
-      db.from("iqama_rows").select("mosque_id,seq,iqama_time,label,quarantined").in("mosque_id", ids).eq("date", date).eq("prayer", prayer),
-      db.from("iqama_rules").select("mosque_id,kind,minutes,fixed_time,valid_from,valid_to").in("mosque_id", ids).eq("prayer", prayer).lte("valid_from", date).or(`valid_to.is.null,valid_to.gte.${date}`),
+      db.from("iqama_rows").select("mosque_id,seq,iqama_time,label,quarantined").in("mosque_id", ids).eq("date", dateStr).eq("prayer", prayer),
+      db.from("iqama_rules").select("mosque_id,kind,minutes,fixed_time,valid_from,valid_to").in("mosque_id", ids).eq("prayer", prayer).lte("valid_from", dateStr).or(`valid_to.is.null,valid_to.gte.${dateStr}`),
     ]);
 
     const cands: Cand[] = [];
     for (const m of ms ?? []) {
       const mr = (rows ?? []).filter((r: { mosque_id: string; quarantined: boolean }) => r.mosque_id === m.id && !r.quarantined);
-      if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time), seq: r.seq, label: r.label, source: "table" }); continue; }
+      if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "table" }); continue; }
       const rule = (rules ?? []).find((r: { mosque_id: string }) => r.mosque_id === m.id);
       if (!rule) continue;
-      const mosqueAdhan = adhanTimes(m.lat, m.lng, now, m.asr_madhhab ?? "standard");
+      const mosqueAdhan = adhanTimes(m.lat, m.lng, dateObj, m.asr_madhhab ?? "standard");
       let iq: number | null = null;
       if (rule.kind === "fixed" && rule.fixed_time) iq = hm(rule.fixed_time);
       else if (rule.kind === "sunset") iq = mosqueAdhan.maghrib;
       else if (rule.kind === "sunset_offset") iq = mosqueAdhan.maghrib + (rule.minutes ?? 0);
       else if (rule.kind === "offset_from_adhan") iq = mosqueAdhan[prayer] + (rule.minutes ?? 0);
-      if (iq != null) cands.push({ mosque: m, iqama: iq, seq: 1, source: "rule" });
+      if (iq != null) cands.push({ mosque: m, iqama: iq + shift, seq: 1, source: "rule" });
     }
     const noData = (ms ?? []).filter((m: { id: string }) => !cands.some((c) => c.mosque.id === m.id)).length;
     const uniq = [...new Map(cands.map((c) => [c.mosque.id, c.mosque])).values()];
@@ -155,26 +170,28 @@ Deno.serve(async (req) => {
     return { pool, uniq, noData, windowEnd };
     }
 
-    if (!pool.length) return json({ prayer, date, now: fmt(nowM), adhan: fmt(ad[prayer]), candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData, recommendation: null, alternatives: [], note: `${skipNote}No iqama data for ${prayer} within ${radius / 1000} km. Pray where you are; the ${prayer} window ends at ${fmt(windowEnd)}.` });
+    const base = { prayer, day: offset === 1 ? "tomorrow" : "today", date: ctx.dateStr, now: fmt(nowM), adhan: fmtD(ctx.ad[prayer] + ctx.shift), window_end: fmtD(windowEnd),
+      missed: lastSkipped ?? null, eta_source: GKEY ? "google_routes" : "estimate", candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData };
+
+    if (!pool.length) return json({ ...base, recommendation: null, alternatives: [], note: `${skipNote}No iqama data for ${cap(prayer)} within ${radius / 1000} km.` });
 
     const pack = (s: Scored) => ({
       mosque: s.c.mosque.name, mosque_id: s.c.mosque.id, address: s.c.mosque.address,
       distance_km: +(s.dist / 1000).toFixed(1), travel_min: s.travel, mode,
-      iqama: fmt(s.c.iqama), leave_by: fmt(s.c.iqama - s.travel - wudu - parking),
+      iqama: fmtD(s.c.iqama), leave_by: fmtD(s.c.iqama - s.travel - wudu - parking),
       slack_min: s.slack, feasible: s.feasible, jamaah: s.c.seq > 1 ? (s.c.label ?? `jama'ah ${s.c.seq}`) : "main",
       data: s.c.source, trust: s.trust,
       maps_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(String(s.c.mosque.address ?? s.c.mosque.name))}&destination_place_id=${s.c.mosque.place_id ?? ""}&travelmode=${mode}`,
     });
     const top = pool[0], rest = pool.slice(1, 4);
-    const note = skipNote + (!top ? `Every nearby jama'ah for ${prayer} has passed. The ${prayer} window ends at ${fmt(windowEnd)} — pray where you are.`
-      : top.feasible ? (top.slack > 20 ? `${prayer[0].toUpperCase() + prayer.slice(1)} iqama at ${fmt(top.c.iqama)} at ${top.c.mosque.name}. No need to leave yet — leave by ${fmt(top.c.iqama - top.travel - wudu - parking)}.` : `Leave now for ${top.c.mosque.name}. You'll arrive about ${top.slack} min before iqama.`)
+    const missedAll = allGone(pool);
+    const note = skipNote + (missedAll ? `${cap(prayer)} jama'ah has passed at every nearby mosque — pray ${cap(prayer)} where you are.`
+      : top.feasible ? (top.slack > 20 ? `${cap(prayer)} iqama ${fmtD(top.c.iqama)} at ${top.c.mosque.name}. No need to leave yet — leave by ${fmtD(top.c.iqama - top.travel - wudu - parking)}.` : `Leave now for ${top.c.mosque.name}. You'll arrive about ${top.slack} min before iqama.`)
       : `You'd arrive about ${-top.slack} min after iqama at ${top.c.mosque.name} — you can still join the jama'ah in progress.`);
 
     return json({
-      prayer, date, now: fmt(nowM), adhan: fmt(ad[prayer]), window_end: fmt(windowEnd),
-      eta_source: GKEY ? "google_routes" : "estimate",
-      candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData,
-      recommendation: top ? pack(top) : null, alternatives: rest.map(pack), note,
+      ...base, missed: missedAll ? prayer : base.missed,
+      recommendation: missedAll ? null : pack(top), alternatives: missedAll ? [] : rest.map(pack), note,
     });
   } catch (e) {
     return json({ error: String(e) }, 500);

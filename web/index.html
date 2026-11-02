@@ -42,6 +42,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font
 .trust i{width:8px;height:8px;border-radius:50%;background:var(--gold);display:inline-block}
 .note{margin:14px 0 0;padding:12px 14px;background:var(--gold-soft);border-radius:12px;font-size:14.5px}
 .note.warn{color:var(--warn)}
+.missed{margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);border-inline-start:4px solid var(--warn);font-size:14.5px}
 .btns{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:16px}
 .go{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--green-2);color:#fff;text-decoration:none;font-weight:600;font-size:17px;border-radius:14px;padding:16px;border:0}
 .go:focus-visible,.ghost:focus-visible,.seg button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
@@ -80,6 +81,7 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
   <div class="adhan" id="pAdhan"></div>
 </div>
 
+<div class="missed" id="missed" hidden></div>
 <section class="card loading" id="card" aria-live="polite">
   <p class="m" id="mName">Locating you…</p>
   <div class="sub" id="mSub">Nearby mosques and today's iqama times.</div>
@@ -161,8 +163,11 @@ async function run() {
 }
 
 function render(d) {
-  $("pName").textContent = cap(d.prayer);
+  $("pName").textContent = cap(d.prayer) + (d.day === "tomorrow" ? " · tomorrow" : "");
   $("pAr").textContent = AR[d.prayer] || "";
+  const missed = $("missed");
+  missed.hidden = !d.missed;
+  if (d.missed) missed.textContent = `${cap(d.missed)} jama'ah has passed at every mosque nearby — pray ${cap(d.missed)} where you are.`;
   $("pAdhan").innerHTML = `Adhan ${d.adhan}<br>now ${d.now}`;
   const rec = d.recommendation;
   const go = $("go");
@@ -182,7 +187,7 @@ function render(d) {
     $("trustText").textContent = (rec.data === "table" ? "From the mosque's timetable" : "From the mosque's standing rule") + (d.eta_source === "estimate" ? " · travel time estimated" : " · live traffic");
   }
   const note = $("note");
-  note.hidden = !d.note; note.textContent = d.note || "";
+  note.hidden = !d.note; note.textContent = (d.note || "").replace(/^.*?pray \w+ where you are\. /, "");
   note.classList.toggle("warn", !!rec && !rec.feasible);
   const alts = $("alts");
   alts.innerHTML = "";
