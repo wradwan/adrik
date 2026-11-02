@@ -1,5 +1,5 @@
 // Adrik Guide — the decision engine. Deterministic; no LLM.
-// POST { lat, lng, mode?: "driving"|"walking"|"transit", has_wudu?: bool, wudu_min?: 5, parking_min?: 3,
+// POST { lat, lng, mode?: "driving"|"walking"|"bicycling"|"transit", has_wudu?: bool, wudu_min?: 5, parking_min?: 3,
 //        radius_m?: 5000, madhhab?: "standard"|"hanafi", prayer?: "fajr"|..., at?: ISO datetime (for testing) }
 // Returns { prayer, adhan, now, recommendation, alternatives, note }
 // Secrets: GOOGLE_MAPS_API_KEY (optional — falls back to distance-based ETA)
@@ -44,7 +44,7 @@ function haversine(a: [number, number], b: [number, number]) {
 
 async function etas(origin: [number, number], dests: [number, number][], mode: string): Promise<number[]> {
   if (!GKEY || dests.length === 0) {
-    const speed = mode === "walking" ? 5 : mode === "transit" ? 18 : 30; // km/h, urban, with a 1.3 road factor
+    const speed = mode === "walking" ? 5 : mode === "bicycling" ? 15 : mode === "transit" ? 18 : 30; // km/h, urban, with a 1.3 road factor
     return dests.map((d) => Math.round(haversine(origin, d) * 1.3 / 1000 / speed * 60));
   }
   const r = await fetch("https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", {
@@ -53,7 +53,7 @@ async function etas(origin: [number, number], dests: [number, number][], mode: s
     body: JSON.stringify({
       origins: [{ waypoint: { location: { latLng: { latitude: origin[0], longitude: origin[1] } } } }],
       destinations: dests.map((d) => ({ waypoint: { location: { latLng: { latitude: d[0], longitude: d[1] } } } })),
-      travelMode: mode === "walking" ? "WALK" : mode === "transit" ? "TRANSIT" : "DRIVE",
+      travelMode: mode === "walking" ? "WALK" : mode === "bicycling" ? "BICYCLE" : mode === "transit" ? "TRANSIT" : "DRIVE",
       ...(mode === "driving" ? { routingPreference: "TRAFFIC_AWARE" } : {}),
     }),
   });
@@ -73,9 +73,9 @@ Deno.serve(async (req) => {
     const b = await req.json();
     const lat = Number(b.lat), lng = Number(b.lng);
     if (!isFinite(lat) || !isFinite(lng)) return json({ error: "lat/lng required" }, 400);
-    const mode = b.mode ?? "driving";
+    const mode = ["driving", "walking", "bicycling", "transit"].includes(b.mode) ? b.mode : "driving";
     const wudu = b.has_wudu ? 0 : (b.wudu_min ?? 5);
-    const parking = mode === "driving" ? (b.parking_min ?? 3) : 0;
+    const parking = mode === "driving" ? (b.parking_min ?? 3) : mode === "bicycling" ? 1 : 0; // 1 min to lock a bike
     const radius = b.radius_m ?? 5000;
     const now = b.at ? new Date(b.at) : new Date();
     const { date, mins: nowM } = localParts(now, TZ);
