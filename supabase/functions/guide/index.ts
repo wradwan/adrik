@@ -1,7 +1,7 @@
 // Adrik Guide — the decision engine. Deterministic; no LLM.
 // POST { lat, lng, mode?: "driving"|"walking"|"bicycling"|"transit", has_wudu?: bool, wudu_min?: 5, parking_min?: 3,
 //        radius_m?: 5000, madhhab?: "standard"|"hanafi", prayer?: "fajr"|..., at?: ISO datetime (for testing),
-//        sort?: "nearest" (default: closest mosque you can still catch) | "iqama" (earliest catchable iqama, weighted score) }
+//        sort?: "nearest" (default: closest mosque you can still catch) | "iqama" (earliest catchable iqama; ties → shorter trip) }
 // Returns { prayer, adhan, now, recommendation, alternatives, note }
 // Secrets: GOOGLE_MAPS_API_KEY (optional — falls back to distance-based ETA)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -174,7 +174,8 @@ Deno.serve(async (req) => {
       s.score = W.earliest * earliest + W.slack * slackScore + W.trust * s.trust + W.travel * travelScore + W.affinity * affinity;
     }
     if (sortBy === "nearest") pool.sort((a, b2) => a.travel - b2.travel || a.dist - b2.dist || a.c.iqama - b2.c.iqama);
-    else pool.sort((a, b2) => (b2.score ?? 0) - (a.score ?? 0));
+    else if (!feas.length) pool.sort((a, b2) => b2.slack - a.slack); // none catchable: least late first
+    else pool.sort((a, b2) => a.c.iqama - b2.c.iqama || a.travel - b2.travel || (b2.score ?? 0) - (a.score ?? 0));
     return { pool, uniq, noData, windowEnd };
     }
 
