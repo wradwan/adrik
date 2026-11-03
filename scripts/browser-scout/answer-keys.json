@@ -205,6 +205,31 @@
       "valid_to": "2027-12-31",
       "expect": "held back",
       "from": "site shows a city prayer-start table (Vaughan), no iqama; must never be stored as iqama"
+    },
+    {
+      "name": "DawaNet Community Centre",
+      "mosque_id": "9173bb10-cbea-41f4-9ddc-8e6a367264db",
+      "url": "http://dawanetservices.ca/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2026-11-10",
+      "from": "screenshot 3 Nov (pop-up behind the 'See prayer times' button); matches the first November period of the site's own schedule data; Jumu'ah from that data",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:15",
+        "asr": "15:30",
+        "maghrib": "sunset+5",
+        "isha": "19:15"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30",
+          "salah": "12:50"
+        },
+        {
+          "khutbah": "13:30",
+          "salah": "13:50"
+        }
+      ]
     }
   ]
 }

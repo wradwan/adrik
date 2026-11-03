@@ -3,7 +3,9 @@
 // For each target mosque it opens the site in Chromium, lets the page's scripts run, follows
 // "prayer times" links, and collects:
 //   - the rendered text of every frame (embedded widgets included)
-//   - screenshots of the blocks that hold prayer times (found by prayer names on screen)
+//   - screenshots of the blocks that hold prayer times (found by prayer names on screen), including
+//     pop-ups and tabs opened by buttons like "See prayer times"
+//   - schedule data a page keeps in its own code (inline scripts)
 //   - timetable images the site posts (monthly calendars, Ramadan charts, ...)
 // It sends that to the scout edge function (mode "ingest"), where Claude reads the text and the
 // screenshots and stores the iqama times with the same rules as the regular Scout.
@@ -46,8 +48,8 @@ async function call(body) {
 
 const bare = (h) => h.replace(/^www\./i, "").toLowerCase();
 
-// Marks the smallest on-screen elements that list at least three prayer names; returns how many.
-const MARK_BLOCKS = () => {
+// Marks the smallest on-screen elements that list at least three prayer names (and are not marked yet).
+const MARK_BLOCKS = (tag) => {
   const names = [/\bfaj[a]?r\b|\bsubh\b/i, /\bdh?uh?r\b|\bzuhr\b|\bzohr\b|\bduhr\b/i, /\basr\b/i, /\bmagh?rib\b/i, /\bisha\b/i];
   const hits = (t) => names.filter((r) => r.test(t)).length;
   const ok = [];
@@ -58,31 +60,79 @@ const MARK_BLOCKS = () => {
     if (r.width < 120 || r.height < 80) continue;
     ok.push(el);
   }
-  const minimal = ok.filter((el) => !ok.some((o) => o !== el && el.contains(o)));
-  minimal.slice(0, 3).forEach((el, i) => el.setAttribute("data-adrik-block", String(i)));
+  // Smallest blocks, widened to keep column headers (Adhan / Iqamah) in the picture.
+  const widen = (el) => {
+    let e = el.closest("table") ?? el;
+    for (let k = 0; k < 3 && e.parentElement; k++) {
+      const p = e.parentElement, pt = p.innerText || "", et = e.innerText || "";
+      if (pt.length > et.length + 300 || !/iqam|adhan|athan|azan|jama|begins|start/i.test(pt.replace(et, ""))) break;
+      e = p;
+    }
+    return e;
+  };
+  const minimal = [...new Set(ok.filter((el) => !ok.some((o) => o !== el && el.contains(o))).map(widen))].filter((el) => !el.closest("[data-adrik-block]"));
+  minimal.slice(0, 3).forEach((el, i) => el.setAttribute("data-adrik-block", `${tag}-${i}`));
   return Math.min(minimal.length, 3);
 };
+
+// Marks buttons and tabs that open a prayer-times pop-up or panel ("See prayer times", "Salah timings").
+const MARK_OPENERS = () => {
+  const re = /prayer|salah|salat|namaz|iqama|iqamah|jamaat|timings?/i;
+  const sel = 'button, [role=button], [role=tab], summary, a[href="#"], a[href^="#"], a[href^="javascript"], [data-toggle], [data-bs-toggle], .elementor-tab-title';
+  const out = [];
+  for (const el of document.querySelectorAll(sel)) {
+    const t = (el.innerText || el.getAttribute("aria-label") || "").trim();
+    const r = el.getBoundingClientRect();
+    if (t.length < 3 || t.length > 40 || !re.test(t) || r.width === 0 || r.height === 0) continue;
+    el.setAttribute("data-adrik-open", String(out.length));
+    out.push(t);
+    if (out.length >= 3) break;
+  }
+  return out;
+};
+
+let pass = 0;
+// Rendered text of every frame plus screenshots of the prayer-time blocks now on screen.
+async function grab(page, out, label) {
+  const texts = [];
+  for (const f of page.frames()) {
+    try { const t = await f.evaluate(() => document.body?.innerText ?? ""); if (t.trim()) texts.push((f === page.mainFrame() ? "" : `--- widget ${f.url()} ---\n`) + t.slice(0, 30_000)); } catch { /* detached */ }
+  }
+  out.text.push(`=== ${label} ===\n` + texts.join("\n\n"));
+  for (const f of page.frames()) {
+    if (out.images.length >= 3) break;
+    const tag = `p${++pass}`;
+    let n = 0;
+    try { n = await f.evaluate(MARK_BLOCKS, tag); } catch { continue; }
+    for (let i = 0; i < n && out.images.length < 3; i++) {
+      try {
+        const buf = await f.locator(`[data-adrik-block="${tag}-${i}"]`).first().screenshot({ type: "jpeg", quality: 85, timeout: 8_000 });
+        out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: `prayer block (${label}) on ${f.url()}` });
+      } catch { /* off-screen or detached */ }
+    }
+  }
+}
 
 async function readPage(page, url, out) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   await page.waitForTimeout(3_000);
-  const texts = [];
-  for (const f of page.frames()) {
-    try { const t = await f.evaluate(() => document.body?.innerText ?? ""); if (t.trim()) texts.push((f === page.mainFrame() ? "" : `--- widget ${f.url()} ---\n`) + t.slice(0, 30_000)); } catch { /* detached */ }
-  }
-  out.text.push(`=== ${page.url()} ===\n` + texts.join("\n\n"));
-  // Screenshots of prayer-time blocks (main page and widgets).
-  for (const f of page.frames()) {
-    if (out.images.length >= 3) break;
-    let n = 0;
-    try { n = await f.evaluate(MARK_BLOCKS); } catch { continue; }
-    for (let i = 0; i < n && out.images.length < 3; i++) {
-      try {
-        const buf = await f.locator(`[data-adrik-block="${i}"]`).first().screenshot({ type: "jpeg", quality: 85, timeout: 8_000 });
-        out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: `prayer block on ${f.url()}` });
-      } catch { /* off-screen or detached */ }
-    }
+  await grab(page, out, page.url());
+  // Schedules some sites keep in their page code (e.g. a WordPress prayer plugin's settings).
+  const data = await page.$$eval("script:not([src])", (els) => els.map((e) => e.textContent || "")
+    .filter((t) => t.length < 60_000 && /fajr/i.test(t) && /isha/i.test(t) && /\d{1,2}:\d{2}/.test(t)).map((t) => t.slice(0, 15_000))).catch(() => []);
+  if (data.length) out.text.push(`=== schedule data in the page code of ${page.url()} (use only where its structure is explicit; what the page displays wins) ===\n` + data.slice(0, 2).join("\n\n"));
+  // Open prayer-times pop-ups, tabs and accordions, then read what appears.
+  const openers = await page.evaluate(MARK_OPENERS).catch(() => []);
+  for (const [i, label] of openers.entries()) {
+    try {
+      const before = page.url();
+      await page.locator(`[data-adrik-open="${i}"]`).first().click({ timeout: 5_000 });
+      await page.waitForTimeout(2_500);
+      if (page.url().split("#")[0] !== before.split("#")[0]) { await page.goBack({ timeout: 15_000 }).catch(() => {}); continue; }
+      await grab(page, out, `${page.url()} after clicking "${label}"`);
+      await page.keyboard.press("Escape").catch(() => {});
+    } catch { /* not clickable */ }
   }
   // Timetable images posted on the page.
   const imgs = await page.$$eval("img", (els) => els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight })));
