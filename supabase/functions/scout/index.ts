@@ -1,14 +1,14 @@
 // Adrik Scout — reads one mosque's website and writes its iqama schedule.
 // POST { mosque_id, force? }.
 // Secrets: OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY; SCOUT_MODEL optional.
-// Deployed version: v9 (2026-11-02): follows www/non-www links and embedded timetable widgets. Works with claude-sonnet-5-5 (no forced tool_choice).
+// Deployed version: v11 (2026-11-02): page collection in collect.ts — linked pages, widgets (Mawaqit, Apps Script, themasjidapp…), script data feeds. Works with claude-sonnet-5-5 (no forced tool_choice).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { collect } from "./collect.ts";
 
 const OR_KEY = Deno.env.get("OPENROUTER_API_KEY");
 const AN_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const MODEL = Deno.env.get("SCOUT_MODEL") ?? (OR_KEY ? "anthropic/claude-sonnet-4.5" : "claude-sonnet-4-5");
-const LINK_RE = /salah|salat|prayer|namaz|iqama|iqamah|timetable|times|اوقات|الصلاة/i;
 
 const SYSTEM = `You are the Scout for Adrik, an app that tells Muslims which congregation (jama'ah) they can still reach.
 Your only job: read a mosque's published prayer schedule and return the IQAMA (congregation start) times by calling the emit_timetable tool exactly once. Always call the tool; never answer in prose.
@@ -22,6 +22,8 @@ Rules:
 - Jumu'ah: return each slot's khutbah start and salah start. If salah is N minutes after khutbah, return salah_offset_min=N and salah_time=null.
 - Multiple jama'ahs for one prayer -> separate entries in second_jamaah with seq 2, 3... and a label.
 - Time changes written as "X --> Y", "X → Y" or "X to Y" (e.g. at a DST change) mean the iqama moved from X to Y: Y is the current time. Under a heading like "Jamaat Timings" or "Iqama" these ARE iqama times (has_iqama=true).
+- Data feeds and widgets: "00:00", "--:--" or an empty value is a placeholder, never an iqama time. A placeholder Maghrib in a feed means the site shows sunset: return a Maghrib "sunset" rule.
+- "N min after adhan" (Mawaqit "+N"): return a rule — offset_from_adhan with minutes=N; for Maghrib use sunset_offset with minutes=N. Fixed times in a per-day calendar go in months as rows.
 - Extract facilities only if explicitly stated. Otherwise null.
 - confidence is your honest 0-1 estimate that every returned time matches the page.`;
 
@@ -55,55 +57,6 @@ const SCHEMA = {
     notes: { type: ["string", "null"] },
   },
 };
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<\/(tr|p|div|li|h\d)>/gi, "\n").replace(/<\/t[dh]>/gi, " | ")
-    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
-    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
-}
-
-async function fetchText(url: string): Promise<string> {
-  const r = await fetch(url, { headers: { "User-Agent": "AdrikScout/0.1 (+iqama schedule reader)" } });
-  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
-  return await r.text();
-}
-
-const bareHost = (h: string) => h.replace(/^www\./i, "").toLowerCase();
-// Timetable widgets mosques commonly embed (iframes) — always worth opening.
-const WIDGET_RE = /themasjidapp|masjidbox|mawaqit|masjidal|masjidiapp|connect-?mazjid|madina\.?apps|iqamah|prayer|salah|salat|iqama|timetable/i;
-
-function iframes(html: string, base: URL): string[] {
-  const out: string[] = [];
-  for (const m of html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)) {
-    try { const u = new URL(m[1], base); if (WIDGET_RE.test(u.toString())) out.push(u.toString()); } catch { /* skip */ }
-  }
-  return out;
-}
-
-async function collect(site: string): Promise<{ text: string; urls: string[] }> {
-  const home = await fetchText(site);
-  const base = new URL(site);
-  const links = new Set<string>();
-  for (const m of home.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const href = m[1], label = htmlToText(m[2]);
-    if (LINK_RE.test(label) || LINK_RE.test(href)) {
-      // Same site, ignoring www. and http/https differences.
-      try { const u = new URL(href, base); if (bareHost(u.host) === bareHost(base.host) && u.toString() !== site) links.add(u.toString()); } catch { /* skip */ }
-    }
-  }
-  const pages = [...links].slice(0, 3);
-  const parts = [htmlToText(home)];
-  const widgets = new Set<string>(iframes(home, base));
-  for (const u of pages) {
-    try { const h = await fetchText(u); parts.push(`\n\n=== ${u} ===\n` + htmlToText(h)); iframes(h, new URL(u)).forEach((w) => widgets.add(w)); } catch { /* skip */ }
-  }
-  for (const w of [...widgets].slice(0, 2)) {
-    try { parts.push(`\n\n=== embedded timetable widget ${w} ===\n` + htmlToText(await fetchText(w))); } catch { /* skip */ }
-  }
-  return { text: parts.join("\n").slice(0, 120_000), urls: [site, ...pages, ...widgets] };
-}
 
 const userMsg = (text: string, mosqueName: string, today: string) =>
   `Mosque: ${mosqueName}. Today is ${today}. Extract this month and next month if published. Call emit_timetable with the result.\n\n${text}`;
@@ -184,7 +137,7 @@ Deno.serve(async (req) => {
     const rows: Record<string, unknown>[] = [];
     for (const mo of out.months ?? []) for (const r of mo.rows ?? []) {
       for (const p of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
-        if (r[p]) rows.push({ mosque_id: m.id, date: r.date, prayer: p, seq: 1, iqama_time: r[p], source_id: sid, quarantined: !out.has_iqama });
+        if (r[p] && !/^0?0:00/.test(r[p])) rows.push({ mosque_id: m.id, date: r.date, prayer: p, seq: 1, iqama_time: r[p], source_id: sid, quarantined: !out.has_iqama });
       }
     }
     for (const s of out.second_jamaah ?? []) rows.push({ mosque_id: m.id, date: s.date, prayer: s.prayer, seq: s.seq, iqama_time: s.time, label: s.label, source_id: sid });
