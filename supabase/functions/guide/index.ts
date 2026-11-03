@@ -126,12 +126,15 @@ Deno.serve(async (req) => {
     const { dateStr, dateObj, windows: win, shift } = dayCtx(offset);
     const windowEnd = win[prayer][1] + shift;
     const jumuahDay = prayer === "dhuhr" && new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(dateObj) === "Fri";
-    const [{ data: rows }, { data: rules }, { data: slotsAll }] = await Promise.all([
+    const d2 = new Date(Date.parse(dateStr + "T12:00:00Z") - 2 * 864e5).toISOString().slice(0, 10);
+    const [{ data: rows }, { data: rules }, { data: slotsAll }, { data: recent }] = await Promise.all([
       db.from("iqama_rows").select("mosque_id,seq,iqama_time,label,quarantined").in("mosque_id", ids).eq("date", dateStr).eq("prayer", prayer),
       db.from("iqama_rules").select("mosque_id,kind,minutes,fixed_time,valid_from,valid_to").in("mosque_id", ids).eq("prayer", prayer).lte("valid_from", dateStr).or(`valid_to.is.null,valid_to.gte.${dateStr}`),
       jumuahDay
         ? db.from("jumuah_slots").select("mosque_id,slot,khutbah_time,language,valid_from").in("mosque_id", ids).lte("valid_from", dateStr).or(`valid_to.is.null,valid_to.gte.${dateStr}`).order("valid_from", { ascending: false })
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+      // Fallback for sites that post today's times only: their latest posted times from the previous 2 days.
+      db.from("iqama_rows").select("mosque_id,seq,iqama_time,label,quarantined,date").in("mosque_id", ids).eq("prayer", prayer).gte("date", d2).lt("date", dateStr).eq("quarantined", false).order("date", { ascending: false }),
     ]);
     // Latest valid Jumu'ah schedule per mosque + slot.
     const slotBy = new Map<string, Record<string, unknown>[]>();
@@ -153,7 +156,11 @@ Deno.serve(async (req) => {
       const mr = (rows ?? []).filter((r: { mosque_id: string; quarantined: boolean }) => r.mosque_id === m.id && !r.quarantined);
       if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "table" }); continue; }
       const rule = (rules ?? []).find((r: { mosque_id: string }) => r.mosque_id === m.id);
-      if (!rule) continue;
+      if (!rule) {
+        const rr = (recent ?? []).filter((r: { mosque_id: string }) => r.mosque_id === m.id);
+        if (rr.length) { const last = rr[0].date; for (const r of rr.filter((x: { date: string }) => x.date === last)) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "recent" }); }
+        continue;
+      }
       const mosqueAdhan = adhanTimes(m.lat, m.lng, dateObj, m.asr_madhhab ?? "standard");
       let iq: number | null = null;
       if (rule.kind === "fixed" && rule.fixed_time) iq = hm(rule.fixed_time);

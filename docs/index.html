@@ -166,7 +166,7 @@ const T = {
     missed:(p)=>`${p} jama'ah has passed at every mosque nearby — pray ${p} where you are.`,
     sub:(km,min,m,j)=>`${km} km · ${min} min ${m}${j?" · "+j:""}`,
     modeWord:{driving:"driving",walking:"walking",bicycling:"by bike",transit:"by transit"},
-    fromTable:"From the mosque's timetable", fromRule:"From the mosque's standing rule", estimated:" · travel time estimated", live:" · live traffic",
+    fromTable:"From the mosque's timetable", fromRule:"From the mosque's standing rule", fromRecent:"From the mosque's latest posted times", fromJumuah:"From the mosque's Jumu'ah schedule", estimated:" · travel time estimated", live:" · live traffic",
     noteWait:(p,i,m,l)=>`${p} iqama ${i} at ${m}. No need to leave yet — leave by ${l}.`,
     noteGo:(m,s)=>s<=1?`Leave now for ${m}. You'll arrive right at iqama.`:`Leave now for ${m}. You'll arrive about ${s} min before iqama.`,
     noteLate:(s,m)=>`You'd arrive about ${s} min after iqama at ${m} — you can still join the jama'ah in progress.`,
@@ -185,7 +185,7 @@ const T = {
     missed:(p)=>`فاتت جماعة ${p} في كل المساجد القريبة — صلِّ ${p} حيث أنت.`,
     sub:(km,min,m,j)=>`${km} كم · ${dq(min)} ${m}${j?" · "+j:""}`,
     modeWord:{driving:"بالسيارة",walking:"مشياً",bicycling:"بالدراجة",transit:"بالمواصلات"},
-    fromTable:"من جدول المسجد", fromRule:"من قاعدة المسجد الثابتة", estimated:" · مدة الطريق تقديرية", live:" · حركة المرور مباشرة",
+    fromTable:"من جدول المسجد", fromRule:"من قاعدة المسجد الثابتة", fromRecent:"من آخر أوقات نشرها المسجد", fromJumuah:"من جدول الجمعة في المسجد", estimated:" · مدة الطريق تقديرية", live:" · حركة المرور مباشرة",
     noteWait:(p,i,m,l)=>`إقامة ${p} ${i} في ${m}. لا داعي للخروج الآن — انطلق قبل ${l}.`,
     noteGo:(m,s)=>s<=1?`انطلق الآن إلى ${m}. ستصل مع الإقامة تماماً.`:`انطلق الآن إلى ${m}. ستصل قبل الإقامة بنحو ${dq(s)}.`,
     noteLate:(s,m)=>`ستصل إلى ${m} بعد الإقامة بنحو ${dq(s)} — ما زال بإمكانك اللحاق بالجماعة.`,
@@ -287,7 +287,7 @@ function render(d) {
     $("leave").textContent = rec.feasible ? tm(rec.leave_by) : L.now;
     go.href = rec.maps_url; go.removeAttribute("aria-disabled");
     $("trust").hidden = false;
-    $("trustText").textContent = (rec.data === "table" ? L.fromTable : L.fromRule) + (d.eta_source === "estimate" ? L.estimated : L.live);
+    $("trustText").textContent = ({table:L.fromTable, rule:L.fromRule, recent:L.fromRecent, jumuah:L.fromJumuah}[rec.data] || L.fromRule) + (d.eta_source === "estimate" ? L.estimated : L.live);
     const iq = tm(rec.iqama) + (tmr ? " " + L.tomorrow : ""), lb = tm(rec.leave_by) + (tmr ? " " + L.tomorrow : "");
     const mn = iso(nm(rec));
     note.textContent = !rec.feasible ? L.noteLate(-rec.slack_min, mn) : rec.slack_min > 20 ? L.noteWait(pname(d.prayer), iso(iq), mn, iso(lb)) : L.noteGo(mn, rec.slack_min);
