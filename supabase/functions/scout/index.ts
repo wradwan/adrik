@@ -12,6 +12,7 @@
 // Version: v14 (2026-11-03): browser ingest with screenshots (vision); adhan-vs-iqama decided by calculation;
 //   a new standing rule ends the previous one for that prayer.
 // v15: target list computed here (partial coverage + 3-day browser refresh), no database function needed.
+// v16: adhan check also uses "an iqama never comes before the adhan"; unclear cases follow Claude's reading.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -176,33 +177,39 @@ function lngLat(m: Out): [number, number] {
   } catch { /* fall through */ }
   return [-79.70, 43.65]; // Peel Region
 }
-function adhanVerdict(m: Out, out: Out): { verdict: "adhan" | "iqama" | "unknown"; close: number; total: number } {
+function adhanVerdict(m: Out, out: Out): { verdict: "adhan" | "iqama" | "unclear" | "unknown"; close: number; early: number; total: number } {
   const [lng, lat] = lngLat(m);
-  const params = adhan.CalculationMethod.NorthAmerica();
-  params.madhab = m.asr_madhhab === "hanafi" ? adhan.Madhab.Hanafi : adhan.Madhab.Shafi;
+  const at = (madhab: unknown) => { const p = adhan.CalculationMethod.NorthAmerica(); p.madhab = madhab as typeof p.madhab; return p; };
+  const own = at(m.asr_madhhab === "hanafi" ? adhan.Madhab.Hanafi : adhan.Madhab.Shafi), shafi = at(adhan.Madhab.Shafi);
   const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz ?? "America/Toronto", hour12: false, hour: "2-digit", minute: "2-digit" });
   const mins = (d: Date) => { const [h, mi] = fmt.format(d).split(":").map(Number); return (h % 24) * 60 + mi; };
   const hm = (t: string) => { const [h, mi] = t.split(":").map(Number); return h * 60 + mi; };
-  let close = 0, total = 0;
+  let close = 0, early = 0, total = 0;
   const rows = (out.months ?? []).flatMap((mo: Out) => mo.rows ?? []).slice(0, 10);
   for (const r of rows) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue;
-    const t = new adhan.PrayerTimes(new adhan.Coordinates(lat, lng), new Date(r.date + "T12:00:00Z"), params);
+    const c = new adhan.Coordinates(lat, lng), d = new Date(r.date + "T12:00:00Z");
+    const t = new adhan.PrayerTimes(c, d, own), ts = new adhan.PrayerTimes(c, d, shafi);
     for (const k of ["fajr", "dhuhr", "asr", "isha"]) {
       if (!r[k] || !/^\d{1,2}:\d{2}/.test(r[k])) continue;
       total++;
-      if (Math.abs(hm(r[k]) - mins(t[k as "fajr"])) <= 3) close++;
+      const v = hm(r[k]);
+      if (Math.abs(v - mins(t[k as "fajr"])) <= 3) close++;
+      // An iqama can never come before the adhan. Earliest possible adhan: Shafi Asr.
+      if (v < mins(ts[k as "fajr"]) - 5) early++;
     }
   }
-  return { verdict: total < 3 ? "unknown" : close / total >= 0.6 ? "adhan" : "iqama", close, total };
+  const verdict: "adhan" | "iqama" | "unclear" | "unknown" = total < 3 ? "unknown" : early > 0 || close / total >= 0.6 ? "adhan" : close / total <= 0.25 ? "iqama" : "unclear";
+  return { verdict, close, early, total };
 }
 
 async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: string, kind: string) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz }).format(new Date());
   const av = adhanVerdict(m, out);
-  const isAdhan = av.verdict === "adhan" || (av.verdict === "unknown" && !out.has_iqama);
+  // Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
+  const isAdhan = av.verdict === "adhan" || (av.verdict !== "iqama" && !out.has_iqama);
   const needsReview = isAdhan || (out.confidence ?? 0) < 0.8 || (av.verdict === "iqama" && !out.has_iqama);
-  const check = av.total ? ` [Adhan check: ${av.close}/${av.total} times within 3 min of the calculated adhan → ${isAdhan ? "held back as adhan" : "stored as iqama"}.]` : "";
+  const check = av.total ? ` [Adhan check: ${av.close}/${av.total} within 3 min of the calculated adhan, ${av.early} before it → ${isAdhan ? "held back as adhan" : "stored as iqama"}.]` : "";
   const { data: src } = await db.from("sources").insert({
     mosque_id: m.id, kind, url: out.source_url ?? url, raw_hash: hash,
     confidence: out.confidence, model: MODEL, notes: (out.notes ?? "") + check, needs_review: needsReview,

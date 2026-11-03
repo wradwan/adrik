@@ -10,7 +10,7 @@
 //
 // Usage:
 //   node scout.mjs                      read every mosque the database says needs a browser read
-//   node scout.mjs --id <uuid> [--id …] read specific mosques
+//   node scout.mjs --id <uuid> --url <site> [--id … --url …]   read specific mosques
 //   node scout.mjs --check [--id …]     read the mosques in answer-keys.json and compare with their keys
 //   node scout.mjs --dry --url <url>    capture only (no Claude, no database); writes ./out/
 // Auth: in GitHub Actions a GitHub OIDC token is used automatically; elsewhere set ADRIK_SCOUT_ADMIN_TOKEN.
@@ -142,7 +142,11 @@ try {
   const keys = JSON.parse(await readFile(new URL("./answer-keys.json", import.meta.url), "utf8"));
   if (flag("--dry")) targets = values("--url").map((u) => ({ name: u, website: u }));
   else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => !values("--id").length || values("--id").includes(k.mosque_id)).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
-  else if (values("--id").length) targets = values("--id").map((id) => ({ id, website: values("--url")[0] }));
+  else if (values("--id").length) {
+    const urls = values("--url");
+    const known = urls.length ? [] : (await call({ mode: "targets" })).targets;
+    targets = values("--id").map((id, i) => ({ id, website: urls[i] ?? known.find((k) => k.id === id)?.website }));
+  }
   else targets = (await call({ mode: "targets" })).targets;
   console.log(`Browser Scout: ${targets.length} mosque(s)`);
   let fails = 0;
@@ -159,12 +163,15 @@ try {
         continue;
       }
       const res = await call({ mode: "ingest", mosque_id: t.id, url: t.website, text: cap.text, images: cap.images.map(({ media_type, data }) => ({ media_type, data })) });
-      const line = `• ${t.name ?? t.id}: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${cap.images.length} image(s), ${Math.round((Date.now() - t0) / 1000)}s`;
+      const line = `• ${t.name ?? t.id}: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${cap.images.length} image(s), ${Math.round((Date.now() - t0) / 1000)}s` +
+        (res.stored_as && res.stored_as !== "iqama" ? ` — ${res.stored_as}` : "");
       if (flag("--check")) {
         const d = res.resolved_today?.date;
         const key = keys.keys.find((k) => k.mosque_id === t.id && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id);
-        const diffs = d >= key.valid_from && d <= key.valid_to ? compare(key, res.resolved_today) : [`key covers ${key.valid_from}..${key.valid_to}; today is ${d} — key needs a fresh screenshot`];
-        if (res.stored_as && res.stored_as !== "iqama") diffs.push(`stored as ${res.stored_as}`);
+        const inRange = d >= key.valid_from && d <= key.valid_to;
+        const diffs = !inRange ? [`key covers ${key.valid_from}..${key.valid_to}; today is ${d} — key needs a fresh screenshot`]
+          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
+          : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []);
         if (diffs.length) fails++;
         console.log(`${line}\n    ${diffs.length ? "✗ " + diffs.join("\n    ✗ ") : "✓ matches the answer key"}`);
       } else console.log(line);

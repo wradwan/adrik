@@ -1,5 +1,5 @@
 {
-  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug.",
+  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. Keys with \"expect\": \"held back\" are adhan-only pages: they pass only if nothing is stored as iqama.",
   "keys": [
     {
       "name": "Masjid-E-Aqsa",
@@ -187,6 +187,24 @@
           "khutbah": "13:00"
         }
       ]
+    },
+    {
+      "name": "Bab ul Ilm - Bani Hashim Society",
+      "mosque_id": "7986732d-970f-4279-a497-ef164c6adfa9",
+      "url": "http://banihashim.org/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2027-12-31",
+      "expect": "held back",
+      "from": "site shows calculated Salaat Timings (Jafari method), no iqama — Fajr before the ISNA adhan; must never be stored as iqama"
+    },
+    {
+      "name": "Masjid Mubarak (Ahmadiyya)",
+      "mosque_id": "305f1806-cfb4-4511-83fc-f3cf9a34d211",
+      "url": "http://ahmadiyya.ca/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2027-12-31",
+      "expect": "held back",
+      "from": "site shows a city prayer-start table (Vaughan), no iqama; must never be stored as iqama"
     }
   ]
 }
