@@ -1,7 +1,7 @@
 // Adrik Scout — reads one mosque's website and writes its iqama schedule.
 // POST { mosque_id, force? }.
 // Secrets: OPENROUTER_API_KEY (preferred) or ANTHROPIC_API_KEY; SCOUT_MODEL optional.
-// Deployed version: v8 (2026-10-29). Works with claude-sonnet-5-5 (no forced tool_choice).
+// Deployed version: v9 (2026-11-02): follows www/non-www links and embedded timetable widgets. Works with claude-sonnet-5-5 (no forced tool_choice).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -69,6 +69,18 @@ async function fetchText(url: string): Promise<string> {
   return await r.text();
 }
 
+const bareHost = (h: string) => h.replace(/^www\./i, "").toLowerCase();
+// Timetable widgets mosques commonly embed (iframes) — always worth opening.
+const WIDGET_RE = /themasjidapp|masjidbox|mawaqit|masjidal|masjidiapp|connect-?mazjid|madina\.?apps|iqamah|prayer|salah|salat|iqama|timetable/i;
+
+function iframes(html: string, base: URL): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)) {
+    try { const u = new URL(m[1], base); if (WIDGET_RE.test(u.toString())) out.push(u.toString()); } catch { /* skip */ }
+  }
+  return out;
+}
+
 async function collect(site: string): Promise<{ text: string; urls: string[] }> {
   const home = await fetchText(site);
   const base = new URL(site);
@@ -76,13 +88,20 @@ async function collect(site: string): Promise<{ text: string; urls: string[] }> 
   for (const m of home.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const href = m[1], label = htmlToText(m[2]);
     if (LINK_RE.test(label) || LINK_RE.test(href)) {
-      try { const u = new URL(href, base); if (u.host === base.host) links.add(u.toString()); } catch { /* skip */ }
+      // Same site, ignoring www. and http/https differences.
+      try { const u = new URL(href, base); if (bareHost(u.host) === bareHost(base.host) && u.toString() !== site) links.add(u.toString()); } catch { /* skip */ }
     }
   }
-  const urls = [site, ...[...links].slice(0, 3)];
+  const pages = [...links].slice(0, 3);
   const parts = [htmlToText(home)];
-  for (const u of urls.slice(1)) { try { parts.push(`\n\n=== ${u} ===\n` + htmlToText(await fetchText(u))); } catch { /* skip */ } }
-  return { text: parts.join("\n").slice(0, 120_000), urls };
+  const widgets = new Set<string>(iframes(home, base));
+  for (const u of pages) {
+    try { const h = await fetchText(u); parts.push(`\n\n=== ${u} ===\n` + htmlToText(h)); iframes(h, new URL(u)).forEach((w) => widgets.add(w)); } catch { /* skip */ }
+  }
+  for (const w of [...widgets].slice(0, 2)) {
+    try { parts.push(`\n\n=== embedded timetable widget ${w} ===\n` + htmlToText(await fetchText(w))); } catch { /* skip */ }
+  }
+  return { text: parts.join("\n").slice(0, 120_000), urls: [site, ...pages, ...widgets] };
 }
 
 const userMsg = (text: string, mosqueName: string, today: string) =>
