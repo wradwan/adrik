@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
     if (!pool.length) return json({ ...base, recommendation: null, alternatives: [], note: `${skipNote}No iqama data for ${cap(prayer)} within ${radius / 1000} km.` });
 
     const pack = (s: Scored) => ({
-      mosque: s.c.mosque.name, mosque_id: s.c.mosque.id, address: s.c.mosque.address,
+      mosque: s.c.mosque.name, mosque_ar: s.c.mosque.name_ar ?? null, mosque_id: s.c.mosque.id, address: s.c.mosque.address,
       distance_km: +(s.dist / 1000).toFixed(1), travel_min: s.travel, mode,
       iqama: fmtD(s.c.iqama), leave_by: fmtD(s.c.iqama - s.travel - wudu - parking),
       slack_min: s.slack, feasible: s.feasible, jamaah: s.c.seq > 1 ? (s.c.label ?? `jama'ah ${s.c.seq}`) : "main",
