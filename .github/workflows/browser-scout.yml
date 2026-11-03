@@ -7,6 +7,12 @@ on:
     - cron: "45 9 * * *"    # 4:45 am Toronto (EST): after the 3 am Scout, before Fajr iqama
     - cron: "0 15 * * *"    # 10:00 am Toronto: sites that post the day's times late
     - cron: "30 10 * * 0"   # Sunday 5:30 am Toronto: answer-key check (regression test)
+  push:                     # Scout code changed: re-check every answer key (regression test)
+    branches: [main]
+    paths:
+      - "scripts/browser-scout/**"
+      - "supabase/functions/scout/**"
+      - ".github/workflows/browser-scout.yml"
   workflow_dispatch:
     inputs:
       check:
@@ -34,7 +40,7 @@ jobs:
       - run: npm install --no-save --no-audit --no-fund playwright@1.48.2
       - run: npx playwright install --with-deps chromium
       - name: Answer-key check
-        if: (github.event_name == 'schedule' && github.event.schedule == '30 10 * * 0') || (github.event_name == 'workflow_dispatch' && inputs.check)
+        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '30 10 * * 0') || (github.event_name == 'workflow_dispatch' && inputs.check)
         run: node scout.mjs --check
       - name: Read mosques that still need times
         if: (github.event_name == 'schedule' && github.event.schedule != '30 10 * * 0') || (github.event_name == 'workflow_dispatch' && !inputs.check)
