@@ -1,0 +1,41 @@
+# Browser Scout: reads mosque sites in a real browser (Playwright + Chromium) for the mosques the
+# regular Scout could not read, takes screenshots of the prayer-time blocks, and sends them to the
+# scout edge function where Claude reads them. Authenticates with GitHub's OIDC token (no secrets).
+name: Browser Scout
+on:
+  schedule:
+    - cron: "45 9 * * *"    # 4:45 am Toronto (EST): after the 3 am Scout, before Fajr iqama
+    - cron: "0 15 * * *"    # 10:00 am Toronto: sites that post the day's times late
+    - cron: "30 10 * * 0"   # Sunday 5:30 am Toronto: answer-key check (regression test)
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Compare with the answer keys instead of the normal run"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: browser-scout
+  cancel-in-progress: false
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: scripts/browser-scout
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --no-audit --no-fund playwright@1.48.2
+      - run: npx playwright install --with-deps chromium
+      - name: Answer-key check
+        if: (github.event_name == 'schedule' && github.event.schedule == '30 10 * * 0') || (github.event_name == 'workflow_dispatch' && inputs.check)
+        run: node scout.mjs --check
+      - name: Read mosques that still need times
+        if: (github.event_name == 'schedule' && github.event.schedule != '30 10 * * 0') || (github.event_name == 'workflow_dispatch' && !inputs.check)
+        run: node scout.mjs

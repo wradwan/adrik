@@ -89,3 +89,28 @@ Expected values for 2026-10-26 after materialisation:
 ## Review queue (v1 = you)
 
 A Supabase view `sources where needs_review` plus a one-screen admin page: page screenshot on the left, extracted table on the right, Approve / Fix / Mark platform. Every Fix is stored as `source_kind = 'manual'` and becomes a regression fixture.
+
+
+## Browser Scout (added 3 Nov 2026)
+
+Some mosque sites only show their times after scripts run, inside widgets, or as images. The Browser Scout
+(`scripts/browser-scout/scout.mjs`) reads those the way a person does:
+
+1. Open the site in Chromium, let scripts run, follow "prayer times" links.
+2. Collect the rendered text of every frame (embedded widgets included).
+3. Screenshot the blocks that list prayer names with times, and download posted timetable images.
+4. Send text + screenshots to the scout edge function (`mode: "ingest"`); Claude reads both and the
+   same storage rules apply.
+
+Runs daily from GitHub Actions (`.github/workflows/browser-scout.yml`) for the mosques
+`browser_scout_targets()` returns; it authenticates with GitHub's OIDC token (repository wradwan/adrik,
+branch main). Locally: `ADRIK_SCOUT_ADMIN_TOKEN=… node scout.mjs` (token in `.env` / `app_secrets`).
+
+**Answer keys** (`answer-keys.json`): ground truth from screenshots of each mosque's own site.
+`node scout.mjs --check` re-reads those mosques and compares; it runs every Sunday. A mismatch is first
+checked against the site's primary data — if the mosque changed its times, the key gets a new date range;
+only a disagreement with the primary data is a Scout bug, and the fix goes into the pipeline (never a
+hand-entered time).
+
+**Adhan vs iqama** is decided by arithmetic: posted Fajr/Dhuhr/Asr/Isha times within 3 minutes of the
+calculated adhan are held back as adhan, whatever the page calls them.

@@ -1,0 +1,192 @@
+{
+  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug.",
+  "keys": [
+    {
+      "name": "Masjid-E-Aqsa",
+      "mosque_id": "1c1f16c4-d58e-404a-ba0c-e35e76f82e50",
+      "url": "http://www.masjidaqsabrampton.org/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2026-11-06",
+      "from": "screenshot 3 Nov (today + weekly overview)",
+      "times": {
+        "fajr": "06:30",
+        "dhuhr": "13:00",
+        "asr": "16:00",
+        "maghrib": "sunset",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:45"
+        },
+        {
+          "khutbah": "13:15"
+        },
+        {
+          "khutbah": "14:00"
+        },
+        {
+          "khutbah": "14:45"
+        }
+      ],
+      "note": "Site gives Jumu'ah iqamah times only; 4 slots (screenshot showed the first two, the site's weekly table shows all four)"
+    },
+    {
+      "name": "Ar-Rashaad Centre",
+      "mosque_id": "ebb96b12-8d06-451f-8458-fe73ce8d054f",
+      "url": "http://www.arrashaad.com/",
+      "valid_from": "2026-11-02",
+      "valid_to": "2026-11-06",
+      "from": "screenshot 3 Nov (block labelled Nov 2 - 6)",
+      "times": {
+        "fajr": "06:20",
+        "dhuhr": "12:35",
+        "asr": "15:45",
+        "maghrib": "17:09",
+        "isha": "19:45"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:10"
+        },
+        {
+          "khutbah": "14:15"
+        }
+      ]
+    },
+    {
+      "name": "Bramalea Islamic Cultural Centre (BICC)",
+      "mosque_id": "331a9ed0-6eb4-4ca5-b2ca-2896387402ee",
+      "url": "http://bramaleaicc.ca/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2026-11-10",
+      "from": "screenshot 3 Nov (today's box; site's change table runs 01-10 Nov)",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:13",
+        "isha": "20:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30",
+          "salah": "13:05"
+        },
+        {
+          "khutbah": "13:30",
+          "salah": "14:05"
+        }
+      ]
+    },
+    {
+      "name": "Masjid Rahmatul-lil-Alameen",
+      "mosque_id": "e45257ef-fad1-44da-ad04-8ccd4b3402c5",
+      "url": "https://rahmatmasjid.com/",
+      "valid_from": "2026-11-02",
+      "valid_to": "2026-11-30",
+      "from": "screenshot 2 Nov (Jamaat Timings box)",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:40",
+        "asr": "15:30",
+        "maghrib": "sunset+3",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30",
+          "salah": "13:00"
+        },
+        {
+          "khutbah": "13:30",
+          "salah": "14:00"
+        }
+      ]
+    },
+    {
+      "name": "Al Hassan Community Centre",
+      "mosque_id": "c0c69b93-d8a4-46af-96c6-60be42a5609c",
+      "url": "https://alhassan.ca/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2026-11-30",
+      "from": "screenshot 2 Nov (Effective Nov 1 - 30)",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:30",
+        "asr": "15:45",
+        "maghrib": "sunset+3",
+        "isha": "20:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:30",
+          "salah": "14:00"
+        }
+      ]
+    },
+    {
+      "name": "Al-Hikmah Centre",
+      "mosque_id": "ac22aa68-3552-43ec-82ee-b124e3c686fd",
+      "url": "https://alhikmahcenter.org/",
+      "valid_from": "2026-11-02",
+      "valid_to": "2026-11-02",
+      "from": "screenshot 2 Nov",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "sunset",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        }
+      ]
+    },
+    {
+      "name": "Anatolia Islamic Centre",
+      "mosque_id": "38715cce-ba2d-4195-842a-1877005d173b",
+      "url": "https://mawaqit.net/en/m/anatolia-islamic-centre-mississauga-l4w-1g5-canada?view=mobile",
+      "valid_from": "2026-11-01",
+      "valid_to": "2026-11-29",
+      "from": "screenshot 2 Nov (Mawaqit widget)",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:30",
+        "asr": "adhan+5",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        }
+      ]
+    },
+    {
+      "name": "Al-Hikmah Centre",
+      "mosque_id": "ac22aa68-3552-43ec-82ee-b124e3c686fd",
+      "url": "https://alhikmahcenter.org/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2026-11-30",
+      "from": "site's own data feed (prayer-time.json) 3 Nov — Asr moved 15:30 → 15:00; the 2 Nov screenshot key now ends 2 Nov",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:00",
+        "maghrib": "sunset",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,174 @@
+// Adrik Browser Scout — reads mosque sites in a real browser, the way a person does.
+//
+// For each target mosque it opens the site in Chromium, lets the page's scripts run, follows
+// "prayer times" links, and collects:
+//   - the rendered text of every frame (embedded widgets included)
+//   - screenshots of the blocks that hold prayer times (found by prayer names on screen)
+//   - timetable images the site posts (monthly calendars, Ramadan charts, ...)
+// It sends that to the scout edge function (mode "ingest"), where Claude reads the text and the
+// screenshots and stores the iqama times with the same rules as the regular Scout.
+//
+// Usage:
+//   node scout.mjs                      read every mosque the database says needs a browser read
+//   node scout.mjs --id <uuid> [--id …] read specific mosques
+//   node scout.mjs --check [--id …]     read the mosques in answer-keys.json and compare with their keys
+//   node scout.mjs --dry --url <url>    capture only (no Claude, no database); writes ./out/
+// Auth: in GitHub Actions a GitHub OIDC token is used automatically; elsewhere set ADRIK_SCOUT_ADMIN_TOKEN.
+import { chromium } from "playwright";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+
+const API = process.env.ADRIK_SCOUT_URL ?? "https://fbowvnwytutltsdnjcxb.supabase.co/functions/v1/scout";
+// Public anon key (same one the web app ships); the function also requires a trusted caller.
+const ANON = process.env.ADRIK_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZib3d2bnd5dHV0bHRzZG5qY3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5MzIzNDEsImV4cCI6MjEwODUwODM0MX0.nLpuv5rDvdka8tfuZ3Ic_T1SdceNtPDTzfhkg6NEYVc";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 AdrikScout/0.2";
+const LINK_RE = /prayer|salah|salat|namaz|iqama|iqamah|jamaat|timing|timetable|اوقات|الصلاة/i;
+const IMG_RE = /prayer|salah|salat|namaz|timetable|time-?table|iqama|jamaat|schedule|calendar|ramadan|timing|monthly/i;
+
+const args = process.argv.slice(2);
+const flag = (f) => args.includes(f);
+const values = (f) => args.flatMap((a, i) => (a === f ? [args[i + 1]] : []));
+
+async function authHeaders() {
+  if (process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
+    const r = await fetch(`${process.env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=adrik-scout`, { headers: { Authorization: `bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
+    return { "x-github-oidc": (await r.json()).value };
+  }
+  if (process.env.ADRIK_SCOUT_ADMIN_TOKEN) return { "x-adrik-admin": process.env.ADRIK_SCOUT_ADMIN_TOKEN };
+  throw new Error("No credentials: run in GitHub Actions or set ADRIK_SCOUT_ADMIN_TOKEN");
+}
+
+async function call(body) {
+  const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, ...(await authHeaders()) }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+  return j;
+}
+
+const bare = (h) => h.replace(/^www\./i, "").toLowerCase();
+
+// Marks the smallest on-screen elements that list at least three prayer names; returns how many.
+const MARK_BLOCKS = () => {
+  const names = [/\bfaj[a]?r\b|\bsubh\b/i, /\bdh?uh?r\b|\bzuhr\b|\bzohr\b|\bduhr\b/i, /\basr\b/i, /\bmagh?rib\b/i, /\bisha\b/i];
+  const hits = (t) => names.filter((r) => r.test(t)).length;
+  const ok = [];
+  for (const el of document.querySelectorAll("body *")) {
+    const t = el.innerText || "";
+    if (t.length > 2500 || hits(t) < 3 || !/\d{1,2}:\d{2}/.test(t)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 120 || r.height < 80) continue;
+    ok.push(el);
+  }
+  const minimal = ok.filter((el) => !ok.some((o) => o !== el && el.contains(o)));
+  minimal.slice(0, 3).forEach((el, i) => el.setAttribute("data-adrik-block", String(i)));
+  return Math.min(minimal.length, 3);
+};
+
+async function readPage(page, url, out) {
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  await page.waitForTimeout(3_000);
+  const texts = [];
+  for (const f of page.frames()) {
+    try { const t = await f.evaluate(() => document.body?.innerText ?? ""); if (t.trim()) texts.push((f === page.mainFrame() ? "" : `--- widget ${f.url()} ---\n`) + t.slice(0, 30_000)); } catch { /* detached */ }
+  }
+  out.text.push(`=== ${page.url()} ===\n` + texts.join("\n\n"));
+  // Screenshots of prayer-time blocks (main page and widgets).
+  for (const f of page.frames()) {
+    if (out.images.length >= 3) break;
+    let n = 0;
+    try { n = await f.evaluate(MARK_BLOCKS); } catch { continue; }
+    for (let i = 0; i < n && out.images.length < 3; i++) {
+      try {
+        const buf = await f.locator(`[data-adrik-block="${i}"]`).first().screenshot({ type: "jpeg", quality: 85, timeout: 8_000 });
+        out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: `prayer block on ${f.url()}` });
+      } catch { /* off-screen or detached */ }
+    }
+  }
+  // Timetable images posted on the page.
+  const imgs = await page.$$eval("img", (els) => els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight })));
+  for (const im of imgs) {
+    if (out.images.length >= 4) break;
+    if (im.w < 400 || im.h < 300 || !IMG_RE.test(`${im.src} ${im.alt} ${im.title}`)) continue;
+    try {
+      const r = await page.request.get(im.src, { timeout: 15_000 });
+      const type = (r.headers()["content-type"] ?? "").split(";")[0];
+      const body = await r.body();
+      if (/^image\/(png|jpeg|webp|gif)$/.test(type) && body.length < 3_500_000) out.images.push({ media_type: type, data: body.toString("base64"), why: `timetable image ${im.src}` });
+    } catch { /* skip */ }
+  }
+  return page.$$eval("a[href]", (as) => as.map((a) => ({ href: a.href, text: (a.innerText || a.title || "").trim().slice(0, 80) })));
+}
+
+async function capture(browser, site) {
+  const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1.5, locale: "en-CA", timezoneId: "America/Toronto" });
+  const page = await ctx.newPage();
+  const out = { text: [], images: [], pages: [site] };
+  try {
+    const links = await readPage(page, site, out);
+    const base = new URL(page.url());
+    const next = [...new Map(links.filter((l) => {
+      try { const u = new URL(l.href); return bare(u.host) === bare(base.host) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
+    }).map((l) => [l.href.split("#")[0], l])).values()].slice(0, 2);
+    for (const l of next) { try { out.pages.push(l.href); await readPage(page, l.href.split("#")[0], out); } catch { /* skip */ } }
+    if (!out.images.length) {   // nothing recognisable: one screenshot of the top of the home page
+      await page.goto(site, { waitUntil: "domcontentloaded", timeout: 35_000 }).catch(() => {});
+      await page.waitForTimeout(4_000);
+      const buf = await page.screenshot({ type: "jpeg", quality: 80, clip: { x: 0, y: 0, width: 1280, height: 2400 }, fullPage: true }).catch(() => null);
+      if (buf) out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: "top of home page" });
+    }
+  } finally { await ctx.close(); }
+  return { text: out.text.join("\n\n").slice(0, 110_000), images: out.images, pages: out.pages };
+}
+
+// Compare what Claude extracted with an answer key (times "HH:MM"; rules "sunset", "sunset+3", "adhan+5").
+// Maghrib is compared loosely: a sunset rule and a fixed time a few minutes after sunset are the same jama'ah.
+function compare(key, got) {
+  const diffs = [];
+  for (const p of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
+    const want = key.times?.[p], have = got?.[p];
+    if (!want || have === want) continue;
+    const sunsetish = (v) => v && (/^sunset/.test(v) || /^1[6-8]:\d\d$/.test(v));
+    if (p === "maghrib" && sunsetish(want) && sunsetish(have)) continue;
+    diffs.push(`${p}: key ${want}, got ${have ?? "nothing"}`);
+  }
+  const wantJ = (key.jumuah ?? []).map((j) => j.khutbah).sort(), haveJ = (got?.jumuah ?? []).map((j) => j.khutbah).sort();
+  if (wantJ.length && wantJ.join() !== haveJ.join()) diffs.push(`jumu'ah khutbah: key ${wantJ.join(", ")}, got ${haveJ.join(", ") || "nothing"}`);
+  return diffs;
+}
+
+const browser = await chromium.launch();
+try {
+  let targets;
+  const keys = JSON.parse(await readFile(new URL("./answer-keys.json", import.meta.url), "utf8"));
+  if (flag("--dry")) targets = values("--url").map((u) => ({ name: u, website: u }));
+  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => !values("--id").length || values("--id").includes(k.mosque_id)).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
+  else if (values("--id").length) targets = values("--id").map((id) => ({ id, website: values("--url")[0] }));
+  else targets = (await call({ mode: "targets" })).targets;
+  console.log(`Browser Scout: ${targets.length} mosque(s)`);
+  let fails = 0;
+  for (const t of targets) {
+    const t0 = Date.now();
+    try {
+      const cap = await capture(browser, t.website);
+      if (flag("--dry")) {
+        await mkdir("out", { recursive: true });
+        const slug = t.website.replace(/https?:\/\/(www\.)?/, "").replace(/[^a-z0-9]+/gi, "_").slice(0, 40);
+        await writeFile(`out/${slug}.txt`, cap.text);
+        for (const [i, im] of cap.images.entries()) await writeFile(`out/${slug}_${i}.jpg`, Buffer.from(im.data, "base64"));
+        console.log(`• ${t.website}: ${cap.text.length} chars, ${cap.images.length} image(s) [${cap.images.map((i) => i.why).join("; ")}] in ${Date.now() - t0} ms`);
+        continue;
+      }
+      const res = await call({ mode: "ingest", mosque_id: t.id, url: t.website, text: cap.text, images: cap.images.map(({ media_type, data }) => ({ media_type, data })) });
+      const line = `• ${t.name ?? t.id}: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${cap.images.length} image(s), ${Math.round((Date.now() - t0) / 1000)}s`;
+      if (flag("--check")) {
+        const d = res.resolved_today?.date;
+        const key = keys.keys.find((k) => k.mosque_id === t.id && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id);
+        const diffs = d >= key.valid_from && d <= key.valid_to ? compare(key, res.resolved_today) : [`key covers ${key.valid_from}..${key.valid_to}; today is ${d} — key needs a fresh screenshot`];
+        if (res.stored_as && res.stored_as !== "iqama") diffs.push(`stored as ${res.stored_as}`);
+        if (diffs.length) fails++;
+        console.log(`${line}\n    ${diffs.length ? "✗ " + diffs.join("\n    ✗ ") : "✓ matches the answer key"}`);
+      } else console.log(line);
+    } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
+  }
+  if (flag("--check") && fails) process.exitCode = 1;
+} finally { await browser.close(); }
