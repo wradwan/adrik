@@ -1,3 +1,4 @@
+-- NOTE (3 Nov 2026): superseded — the scout edge function (v15) now computes the target list itself (browserTargets), including partial coverage and a 3-day browser refresh. This SQL function is unused.
 -- Browser Scout: a real-browser reader (GitHub Actions + Playwright) for sites whose times only appear
 -- after scripts run, inside widgets, or in images. It sends rendered text + screenshots to the scout
 -- edge function (mode "ingest"); callers are trusted via GitHub OIDC or an admin token kept here.

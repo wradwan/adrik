@@ -11,6 +11,7 @@
 // Secrets: OPENROUTER_API_KEY or ANTHROPIC_API_KEY; SCOUT_MODEL optional.
 // Version: v14 (2026-11-03): browser ingest with screenshots (vision); adhan-vs-iqama decided by calculation;
 //   a new standing rule ends the previous one for that prayer.
+// v15: target list computed here (partial coverage + 3-day browser refresh), no database function needed.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -245,6 +246,27 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
     adhan_check: av, resolved_today: resolvedFor(out, today) };
 }
 
+// Mosques the Browser Scout should read today: active with a website, and either fewer than all five
+// prayers covered for today (rows or standing rules), or last read by the browser more than 3 days ago.
+async function browserTargets(db: SupabaseClient) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
+  const [{ data: ms }, { data: rows }, { data: rules }, { data: srcs }] = await Promise.all([
+    db.from("mosques").select("id,name,website,community").eq("active", true).not("website", "is", null),
+    db.from("iqama_rows").select("mosque_id,prayer").eq("date", today).eq("quarantined", false).limit(5000),
+    db.from("iqama_rules").select("mosque_id,prayer").lte("valid_from", today).or(`valid_to.is.null,valid_to.gte.${today}`).limit(5000),
+    db.from("sources").select("mosque_id,fetched_at").eq("kind", "browser").order("fetched_at", { ascending: false }).limit(5000),
+  ]);
+  const cov = new Map<string, Set<string>>();
+  for (const x of [...(rows ?? []), ...(rules ?? [])]) { const s = cov.get(x.mosque_id) ?? new Set(); s.add(x.prayer); cov.set(x.mosque_id, s); }
+  const lastBrowser = new Map<string, string>();
+  for (const x of srcs ?? []) if (!lastBrowser.has(x.mosque_id)) lastBrowser.set(x.mosque_id, x.fetched_at);
+  const stale = Date.now() - 3 * 864e5;
+  return (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id) ?? null }))
+    .filter((m) => m.covered < 5 || (m.last_browser && Date.parse(m.last_browser) < stale))
+    .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "weekly browser refresh" }))
+    .sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || a.name.localeCompare(b.name));
+}
+
 Deno.serve(async (req) => {
   try {
     if (!OR_KEY && !AN_KEY) return Response.json({ error: "set OPENROUTER_API_KEY or ANTHROPIC_API_KEY" }, { status: 500 });
@@ -253,9 +275,7 @@ Deno.serve(async (req) => {
 
     if (body.mode === "targets") {
       if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
-      const { data, error } = await db.rpc("browser_scout_targets");
-      if (error) throw error;
-      return Response.json({ targets: data });
+      return Response.json({ targets: await browserTargets(db) });
     }
 
     const { data: m, error } = await db.from("mosques").select("*").eq("id", body.mosque_id).single();
