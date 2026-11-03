@@ -92,9 +92,8 @@ Deno.serve(async (req) => {
     const { data: msAll, error } = await db.rpc("mosques_in_radius_v2", { lat, lng, radius_m: radius, communities });
     if (error) throw error;
     // Jumu'ah-only places (e.g. a workplace musalla) are candidates on Friday Dhuhr only.
-    const isFriday = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(now) === "Fri";
     const ms = (msAll ?? []).filter((m: Mosque) => !m.jumuah_only);
-    const msJumuah = isFriday ? (msAll ?? []) : ms;
+    const msJumuah = msAll ?? []; // used only when the evaluated day is Friday
     const ids = (msAll ?? []).map((m: { id: string }) => m.id);
 
     // Day context: today (offset 0) or tomorrow (offset 1). Times stay in minutes relative to today's midnight.
@@ -126,13 +125,31 @@ Deno.serve(async (req) => {
     async function evaluate(prayer: Prayer, offset: 0 | 1) {
     const { dateStr, dateObj, windows: win, shift } = dayCtx(offset);
     const windowEnd = win[prayer][1] + shift;
-    const [{ data: rows }, { data: rules }] = await Promise.all([
+    const jumuahDay = prayer === "dhuhr" && new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(dateObj) === "Fri";
+    const [{ data: rows }, { data: rules }, { data: slotsAll }] = await Promise.all([
       db.from("iqama_rows").select("mosque_id,seq,iqama_time,label,quarantined").in("mosque_id", ids).eq("date", dateStr).eq("prayer", prayer),
       db.from("iqama_rules").select("mosque_id,kind,minutes,fixed_time,valid_from,valid_to").in("mosque_id", ids).eq("prayer", prayer).lte("valid_from", dateStr).or(`valid_to.is.null,valid_to.gte.${dateStr}`),
+      jumuahDay
+        ? db.from("jumuah_slots").select("mosque_id,slot,khutbah_time,language,valid_from").in("mosque_id", ids).lte("valid_from", dateStr).or(`valid_to.is.null,valid_to.gte.${dateStr}`).order("valid_from", { ascending: false })
+        : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     ]);
+    // Latest valid Jumu'ah schedule per mosque + slot.
+    const slotBy = new Map<string, Record<string, unknown>[]>();
+    const seen = new Set<string>();
+    for (const j of (slotsAll ?? []) as Record<string, unknown>[]) {
+      const k = `${j.mosque_id}:${j.slot}`; if (seen.has(k)) continue; seen.add(k);
+      if (!j.khutbah_time) continue;
+      const a = slotBy.get(j.mosque_id as string) ?? []; a.push(j); slotBy.set(j.mosque_id as string, a);
+    }
 
     const cands: Cand[] = [];
-    for (const m of (prayer === "dhuhr" ? msJumuah : ms)) {
+    for (const m of (jumuahDay ? msJumuah : ms)) {
+      // Friday: Jumu'ah slots replace Dhuhr. Target = khutbah start. Jumu'ah-only places need slots.
+      if (jumuahDay) {
+        const sl = slotBy.get(m.id);
+        if (sl?.length) { for (const j of sl) cands.push({ mosque: m, iqama: hm(j.khutbah_time as string) + shift, seq: j.slot as number, label: `Jumu'ah ${j.slot}${j.language ? ` (${j.language})` : ""}`, source: "jumuah" }); continue; }
+        if (m.jumuah_only) continue;
+      }
       const mr = (rows ?? []).filter((r: { mosque_id: string; quarantined: boolean }) => r.mosque_id === m.id && !r.quarantined);
       if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "table" }); continue; }
       const rule = (rules ?? []).find((r: { mosque_id: string }) => r.mosque_id === m.id);
@@ -188,7 +205,7 @@ Deno.serve(async (req) => {
       mosque: s.c.mosque.name, mosque_ar: s.c.mosque.name_ar ?? null, mosque_id: s.c.mosque.id, address: s.c.mosque.address,
       distance_km: +(s.dist / 1000).toFixed(1), travel_min: s.travel, mode,
       iqama: fmtD(s.c.iqama), leave_by: fmtD(s.c.iqama - s.travel - wudu - parking),
-      slack_min: s.slack, feasible: s.feasible, jamaah: s.c.seq > 1 ? (s.c.label ?? `jama'ah ${s.c.seq}`) : "main",
+      slack_min: s.slack, feasible: s.feasible, jamaah: s.c.source === "jumuah" ? s.c.label : s.c.seq > 1 ? (s.c.label ?? `jama'ah ${s.c.seq}`) : "main",
       data: s.c.source, trust: s.trust,
       maps_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(String(s.c.mosque.address ?? s.c.mosque.name))}&destination_place_id=${s.c.mosque.place_id ?? ""}&travelmode=${mode}`,
     });

@@ -209,6 +209,7 @@ const t = () => T[lang];
 // Times come from the engine as "6:15 am" / "6:15 am tomorrow".
 const tm = (s) => { if (!s) return s; s = s.replace(" tomorrow", ""); return lang === "ar" ? s.replace(" am", " ص").replace(" pm", " م") : s; };
 const pname = (p) => PRAYER[lang][p] || p;
+const jl = (x) => lang === "ar" ? x.replace("Jumu'ah", "الجمعة").replace("(English)", "(بالإنجليزية)").replace("(Arabic)", "(بالعربية)").replace("(Urdu)", "(بالأردية)") : x;
 const iso = (x) => "\u2068" + x + "\u2069"; // keep Latin names intact inside Arabic sentences
 const nm = (o) => lang === "ar" && o.mosque_ar ? o.mosque_ar : o.mosque; // name for sentences
 // Big name: Arabic first with the English name beneath it (Arabic UI); English only otherwise.
@@ -261,8 +262,9 @@ async function run() {
 
 function render(d) {
   const L = t(), tmr = d.day === "tomorrow";
-  $("pName").textContent = pname(d.prayer);
-  $("pAr").textContent = lang === "en" ? PRAYER.ar[d.prayer] || "" : PRAYER.en[d.prayer] || "";
+  const jum = d.recommendation?.data === "jumuah";
+  $("pName").textContent = jum ? (lang === "ar" ? "الجمعة" : "Jumu'ah") : pname(d.prayer);
+  $("pAr").textContent = jum ? (lang === "ar" ? "Jumu'ah" : "الجمعة") : lang === "en" ? PRAYER.ar[d.prayer] || "" : PRAYER.en[d.prayer] || "";
   const missed = $("missed");
   missed.hidden = !d.missed;
   if (d.missed) missed.textContent = L.missed(pname(d.missed));
@@ -280,7 +282,7 @@ function render(d) {
     $("trust").hidden = true; note.hidden = true;
   } else {
     setName($("mName"), rec);
-    $("mSub").textContent = L.sub(rec.distance_km, rec.travel_min, L.modeWord[rec.mode] || rec.mode, rec.jamaah !== "main" ? rec.jamaah : "");
+    $("mSub").textContent = L.sub(rec.distance_km, rec.travel_min, L.modeWord[rec.mode] || rec.mode, rec.jamaah !== "main" ? jl(rec.jamaah) : "");
     $("iqama").textContent = tm(rec.iqama);
     $("leave").textContent = rec.feasible ? tm(rec.leave_by) : L.now;
     go.href = rec.maps_url; go.removeAttribute("aria-disabled");
