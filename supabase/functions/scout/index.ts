@@ -21,6 +21,7 @@ Rules:
 - A change of iqama mid-month is normal. Return per-day rows; do not collapse to one value.
 - Jumu'ah: return each slot's khutbah start and salah start. If salah is N minutes after khutbah, return salah_offset_min=N and salah_time=null.
 - Multiple jama'ahs for one prayer -> separate entries in second_jamaah with seq 2, 3... and a label.
+- Time changes written as "X --> Y", "X → Y" or "X to Y" (e.g. at a DST change) mean the iqama moved from X to Y: Y is the current time. Under a heading like "Jamaat Timings" or "Iqama" these ARE iqama times (has_iqama=true).
 - Extract facilities only if explicitly stated. Otherwise null.
 - confidence is your honest 0-1 estimate that every returned time matches the page.`;
 
