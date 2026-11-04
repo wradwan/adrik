@@ -131,6 +131,7 @@ async function grab(page, out, label) {
 }
 
 class BotCheck extends Error {}
+const SCHEDULED = !!process.env.ACTIONS_ID_TOKEN_REQUEST_URL;   // running as the scheduled GitHub reader
 // A challenge page (Cloudflare, SiteGround, captcha) or a short refusal (HTTP 401/403/406/429): the site
 // does not let automated readers in. Long pages that merely mention "captcha" (contact forms) are not refusals.
 async function botCheck(page, status) {
@@ -282,7 +283,8 @@ try {
       const keyFor = (d) => keys.keys.find((k) => k.mosque_id === t.id && !k.image && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id && !k.image);
       if (cap.blocked) {
         const line = `• ${t.name ?? t.website}: bot check — not read (${cap.blocked})`;
-        if (!flag("--dry")) await call({ mode: "blocked", mosque_id: t.id, url: t.website, reason: cap.blocked });
+        // Refusals depend on the reader's network, so only the scheduled reader (GitHub Actions) records them.
+        if (!flag("--dry") && SCHEDULED) await call({ mode: "blocked", mosque_id: t.id, url: t.website, reason: cap.blocked });
         if (flag("--check")) { const key = keyFor(today); verdict(line, key, key.expect === "bot check" ? [] : ["site showed a bot check"]); }
         else console.log(line);
         continue;

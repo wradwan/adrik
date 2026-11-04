@@ -411,18 +411,6 @@
       ]
     },
     {
-      "name": "Jame Masjid Mississauga",
-      "mosque_id": "ab6f1810-b435-4971-b250-7f0547e7116d",
-      "url": "http://ipcontario.com/",
-      "valid_from": "2026-11-03",
-      "valid_to": "2099-12-31",
-      "expect": "bot check",
-      "from": "SiteGround 'Checking the site connection security' captcha (3 Nov)",
-      "rules": [
-        "bot-check"
-      ]
-    },
-    {
       "name": "Mississauga Muslim Community",
       "mosque_id": "e509cd96-4320-470c-9660-8a2c4b8745f9",
       "url": "https://mississaugamuslim.ca/",
