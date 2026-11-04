@@ -44,12 +44,15 @@ await (async () => {
       const href = el.getAttribute("href") || "";
       if (href && !/^(#|javascript)/.test(href) && new URL(href, location.href).pathname !== location.pathname) continue;   // stay on this page
       el.click(); clicked.push(t);
-      await sleep(2500);
-      top = find();
+      // Panels often load their times after opening: wait up to 8 s before trying another opener (a second click
+      // on a toggle would close the panel again).
+      for (let w = 0; w < 16 && !(top = find()).length; w++) await sleep(500);
       if (top.length || clicked.length >= 3) break;
     }
   }
-  const tidy = (s) => s.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  // Plain spaces only (non-breaking and other Unicode spaces become " ", zero-width characters go), so a copy of the
+  // text is exact and the checksum holds.
+  const tidy = (s) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/[^\S\n]+/g, " ").replace(/ *\n[\s]*/g, "\n").trim();
   const blocks = top.map((b) => tidy(b.innerText));
   const jumuah = [...document.querySelectorAll("body *")]
     .filter((el) => /jum[uma]+'?a?h?|friday/i.test(el.innerText || "") && /\d{1,2}:\d{2}/.test(el.innerText || "") && (el.innerText || "").length < 400)
