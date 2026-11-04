@@ -348,7 +348,7 @@
       "rules": [
         "next-iqamah-label",
         "not-a-prayer",
-        "screenshot-date",
+        "shown-date",
         "formats",
         "screenshot-inbox"
       ]
@@ -382,7 +382,7 @@
         "not-a-prayer",
         "jumuah-athan",
         "location-picker",
-        "screenshot-date",
+        "shown-date",
         "screenshot-inbox"
       ]
     },

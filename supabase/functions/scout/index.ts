@@ -17,6 +17,9 @@
 // v18: "Tomorrow" lines; screenshot inbox (ingest with source: "screenshot", stored as kind image).
 // v19: reading rules come from rules.ts (the rulebook); ingest dry-run for test fixtures; mode "blocked" records
 //   a bot check and the target list skips such sites for 7 days. Claude is told the mosque's address (location rules).
+// v20: computer reader — sites that refuse automated readers are read in a person's own Chrome (source "pc-chrome",
+//   stored as kind browser with notes "PC CHROME: …"); targets also lists them ("computer"); a site that refuses a
+//   normal browser too is recorded as SITE CLOSED.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -206,14 +209,14 @@ function classify(m: Out, out: Out) {
   return { av, isAdhan: av.verdict === "adhan" || (av.verdict !== "iqama" && !out.has_iqama) };
 }
 
-async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: string, kind: string) {
+async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: string, kind: string, notePrefix = "") {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz }).format(new Date());
   const { av, isAdhan } = classify(m, out);
   const needsReview = isAdhan || (out.confidence ?? 0) < 0.8 || (av.verdict === "iqama" && !out.has_iqama);
   const check = av.total ? ` [Adhan check: ${av.close}/${av.total} within 3 min of the calculated adhan, ${av.early} before it → ${isAdhan ? "held back as adhan" : "stored as iqama"}.]` : "";
   const { data: src } = await db.from("sources").insert({
     mosque_id: m.id, kind, url: out.source_url ?? url, raw_hash: hash,
-    confidence: out.confidence, model: MODEL, notes: (out.notes ?? "") + check, needs_review: needsReview,
+    confidence: out.confidence, model: MODEL, notes: notePrefix + (out.notes ?? "") + check, needs_review: needsReview,
   }).select("id").single();
   const sid = src!.id;
 
@@ -257,6 +260,8 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
 // Rule daily-targets: mosques the Browser Scout should read today — every active mosque with a website (new ones
 // included) with fewer than all five prayers covered today (rows or standing rules), or last read by the browser
 // more than 3 days ago. Rule bot-check: sites that refused the reader in the last 7 days are listed as blocked.
+// Rule computer-reader: those are listed in "computer" for a person's own browser to read, unless that browser was
+// refused too (SITE CLOSED) in the last 7 days. Reads made in a person's browser do not count as automated reads.
 async function browserTargets(db: SupabaseClient) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const [{ data: ms }, { data: rows }, { data: rules }, { data: srcs }] = await Promise.all([
@@ -267,8 +272,11 @@ async function browserTargets(db: SupabaseClient) {
   ]);
   const cov = new Map<string, Set<string>>();
   for (const x of [...(rows ?? []), ...(rules ?? [])]) { const s = cov.get(x.mosque_id) ?? new Set(); s.add(x.prayer); cov.set(x.mosque_id, s); }
-  const lastBrowser = new Map<string, { at: string; bot: boolean }>();
-  for (const x of srcs ?? []) if (!lastBrowser.has(x.mosque_id)) lastBrowser.set(x.mosque_id, { at: x.fetched_at, bot: /^BOT CHECK/.test(x.notes ?? "") });
+  const lastBrowser = new Map<string, { at: string; bot: boolean }>(), lastPc = new Map<string, { at: string; closed: boolean }>();
+  for (const x of srcs ?? []) {
+    if (/^(PC CHROME|SITE CLOSED)/.test(x.notes ?? "")) { if (!lastPc.has(x.mosque_id)) lastPc.set(x.mosque_id, { at: x.fetched_at, closed: /^SITE CLOSED/.test(x.notes ?? "") }); }
+    else if (!lastBrowser.has(x.mosque_id)) lastBrowser.set(x.mosque_id, { at: x.fetched_at, bot: /^BOT CHECK/.test(x.notes ?? "") });
+  }
   const stale = Date.now() - 3 * 864e5, botWait = Date.now() - 7 * 864e5;
   // Rule bot-check: a site that showed a bot check is not visited again for 7 days.
   const all = (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
@@ -277,7 +285,10 @@ async function browserTargets(db: SupabaseClient) {
     .filter((m) => m.covered < 5 || (m.last_browser && Date.parse(m.last_browser) < stale))
     .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "browser refresh (every 3 days)" }))
     .sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || a.name.localeCompare(b.name));
-  return { targets, blocked: blocked.map((m) => ({ id: m.id, name: m.name, website: m.website, since: m.last_browser, reason: "bot check: needs a screenshot or the mosque's feed" })) };
+  const computer = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > Date.now() - 8 * 864e5)
+    .filter((m) => { const pc = lastPc.get(m.id); return !(pc?.closed && Date.parse(pc.at) > botWait); });
+  return { targets, blocked: blocked.map((m) => ({ id: m.id, name: m.name, website: m.website, since: m.last_browser, reason: "bot check: read in a person's browser (computer reader) or from a screenshot" })),
+    computer: computer.map((m) => ({ id: m.id, name: m.name, website: m.website, covered_today: m.covered, last_computer_read: lastPc.get(m.id)?.at ?? null })) };
 }
 
 Deno.serve(async (req) => {
@@ -297,8 +308,11 @@ Deno.serve(async (req) => {
 
     if (body.mode === "blocked") {   // rule bot-check: record it, never force past it
       if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
-      const { data: src } = await db.from("sources").insert({ mosque_id: m.id, kind: "browser", url: body.url ?? m.website, needs_review: true,
-        notes: `BOT CHECK: ${String(body.reason ?? "the site showed a bot check to the browser reader").slice(0, 300)}. Not read; needs a screenshot or the mosque's own feed.` }).select("id").single();
+      const reason = String(body.reason ?? "the site showed a bot check to the browser reader").slice(0, 300);
+      const notes = body.source === "pc-chrome"   // a person's own browser was refused too: the site is closed to everyone
+        ? `SITE CLOSED: ${reason}. A normal browser is refused too; needs the mosque's other channel.`
+        : `BOT CHECK: ${reason}. Not read automatically; read in a person's browser (computer reader) or from a screenshot.`;
+      const { data: src } = await db.from("sources").insert({ mosque_id: m.id, kind: "browser", url: body.url ?? m.website, needs_review: true, notes }).select("id").single();
       return Response.json({ status: "blocked", source_id: src?.id });
     }
 
@@ -311,15 +325,18 @@ Deno.serve(async (req) => {
         .filter((d: Img) => d?.media_type === "application/pdf" && typeof d?.data === "string" && d.data.length < 6_500_000);
       const hash = await sha256(text + [...images, ...docs].map((i) => i.data.slice(0, 2000)).join("|"));
       const shot = body.source === "screenshot";   // a community member's screenshot of the mosque's own site
-      const out = await extract(shot ? `A community member sent this screenshot of ${m.name}'s own website (${body.url ?? m.website ?? "site"}), taken ${body.taken ?? today}. ${text}` : text,
-        label(m), today, { images, docs }, !shot);
+      const pc = body.source === "pc-chrome";      // read in a person's own Chrome (rule computer-reader)
+      const intro = shot ? `A community member sent this screenshot of ${m.name}'s own website (${body.url ?? m.website ?? "site"}), taken ${body.taken ?? today}. ${text}`
+        : pc ? `This site refuses automated readers, so it was read in a person's own Chrome on their computer. Below is the rendered text of the prayer-time block(s) the page showed (after clicking any "prayer times" opener), then any Jumu'ah lines on the page.\n\n${text}`
+        : text;
+      const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
       if (body.dry) {   // test fixture: read with every rule, write nothing
         const { av, isAdhan } = classify(m, out);
         return Response.json({ status: "dry", confidence: out.confidence, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
           adhan_check: av, rows: (out.months ?? []).reduce((n: number, mo: Out) => n + (mo.rows?.length ?? 0), 0), rules: out.rules?.length ?? 0, jumuah: out.jumuah?.length ?? 0,
           resolved_today: resolvedFor(out, String(body.taken ?? today), isAdhan) });
       }
-      return Response.json({ ...(await store(db, m, out, hash, body.url ?? m.website, shot ? "image" : "browser")), images: images.length, docs: docs.length });
+      return Response.json({ ...(await store(db, m, out, hash, body.url ?? m.website, shot ? "image" : "browser", pc ? "PC CHROME: " : "")), images: images.length, docs: docs.length });
     }
 
     if (!m.website) return Response.json({ error: "mosque has no website" }, { status: 400 });
