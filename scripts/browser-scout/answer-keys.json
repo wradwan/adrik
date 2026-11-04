@@ -1,5 +1,5 @@
 {
-  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. Keys with \"expect\": \"held back\" are adhan-only pages: they pass only if nothing is stored as iqama.",
+  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser (or re-reads a screenshot fixture, writing nothing) and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to; an expired key is a warning. `rules` lists the rulebook ids (supabase/functions/scout/rules.ts) the key exercises; the check reports every rule as passing, failing or untested. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. \"expect\": \"held back\" = adhan-only page (passes only if nothing is stored as iqama); \"expect\": \"bot check\" = the site refuses automated readers (passes when the refusal is recognised). Keys with \"image\" are screenshot fixtures (screenshot inbox), read with the same rules.",
   "keys": [
     {
       "name": "Masjid-E-Aqsa",
@@ -29,7 +29,15 @@
           "khutbah": "14:45"
         }
       ],
-      "note": "Site gives Jumu'ah iqamah times only; 4 slots (screenshot showed the first two, the site's weekly table shows all four)"
+      "note": "Site gives Jumu'ah iqamah times only; 4 slots (screenshot showed the first two, the site's weekly table shows all four)",
+      "rules": [
+        "prayer-blocks",
+        "maghrib-sunset-note",
+        "rules-beat-tables",
+        "jumuah-start-iqamah",
+        "adhan-check",
+        "real-browser"
+      ]
     },
     {
       "name": "Ar-Rashaad Centre",
@@ -52,6 +60,13 @@
         {
           "khutbah": "14:15"
         }
+      ],
+      "rules": [
+        "date-range-block",
+        "adhan-check",
+        "ignore-city-widgets",
+        "jumuah-start-iqamah",
+        "real-browser"
       ]
     },
     {
@@ -77,6 +92,12 @@
           "khutbah": "13:30",
           "salah": "14:05"
         }
+      ],
+      "rules": [
+        "today-box-plus-change-table",
+        "prayer-blocks",
+        "jumuah-start-iqamah",
+        "iqama-not-adhan"
       ]
     },
     {
@@ -102,6 +123,11 @@
           "khutbah": "13:30",
           "salah": "14:00"
         }
+      ],
+      "rules": [
+        "arrow-change",
+        "rules-beat-tables",
+        "jumuah-start-iqamah"
       ]
     },
     {
@@ -123,6 +149,11 @@
           "khutbah": "13:30",
           "salah": "14:00"
         }
+      ],
+      "rules": [
+        "date-range-block",
+        "rules-beat-tables",
+        "jumuah-start-iqamah"
       ]
     },
     {
@@ -143,6 +174,11 @@
         {
           "khutbah": "13:00"
         }
+      ],
+      "rules": [
+        "rules-beat-tables",
+        "daily-targets",
+        "key-vs-site"
       ]
     },
     {
@@ -166,6 +202,11 @@
         {
           "khutbah": "13:30"
         }
+      ],
+      "rules": [
+        "mawaqit-offset",
+        "rules-beat-tables",
+        "widget-iframes"
       ]
     },
     {
@@ -186,6 +227,11 @@
         {
           "khutbah": "13:00"
         }
+      ],
+      "rules": [
+        "rules-beat-tables",
+        "daily-targets",
+        "key-vs-site"
       ]
     },
     {
@@ -195,7 +241,12 @@
       "valid_from": "2026-11-01",
       "valid_to": "2027-12-31",
       "expect": "held back",
-      "from": "site shows calculated Salaat Timings (Jafari method), no iqama — Fajr before the ISNA adhan; must never be stored as iqama"
+      "from": "site shows calculated Salaat Timings (Jafari method), no iqama — Fajr before the ISNA adhan; must never be stored as iqama",
+      "rules": [
+        "iqama-never-before-adhan",
+        "not-a-prayer",
+        "iqama-not-adhan"
+      ]
     },
     {
       "name": "Masjid Mubarak (Ahmadiyya)",
@@ -204,7 +255,12 @@
       "valid_from": "2026-11-01",
       "valid_to": "2027-12-31",
       "expect": "held back",
-      "from": "site shows a city prayer-start table (Vaughan), no iqama; must never be stored as iqama"
+      "from": "site shows a city prayer-start table (Vaughan), no iqama; must never be stored as iqama",
+      "rules": [
+        "adhan-check",
+        "ignore-city-widgets",
+        "iqama-not-adhan"
+      ]
     },
     {
       "name": "DawaNet Community Centre",
@@ -229,6 +285,13 @@
           "khutbah": "13:30",
           "salah": "13:50"
         }
+      ],
+      "rules": [
+        "real-browser",
+        "open-pop-ups",
+        "page-code-schedules",
+        "jumuah-start-iqamah",
+        "rules-beat-tables"
       ]
     },
     {
@@ -258,6 +321,117 @@
           "khutbah": "14:00",
           "salah": "14:15"
         }
+      ],
+      "rules": [
+        "whole-widget-screenshot",
+        "tomorrow-line",
+        "jumuah-start-iqamah",
+        "daily-keys-expire"
+      ]
+    },
+    {
+      "name": "Brampton and Regional Islamic Centre (BARIC)",
+      "mosque_id": "8c8752a3-96ab-4d46-b6f0-868ff6bc4116",
+      "url": "https://baric.ca/",
+      "image": "fixtures/baric-2026-11-03.jpg",
+      "taken": "2026-11-03",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of baric.ca, 3 Nov (heading 'Prayer Times', 'Next Iqamah' countdown)",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:08",
+        "isha": "19:45"
+      },
+      "rules": [
+        "next-iqamah-label",
+        "not-a-prayer",
+        "screenshot-date",
+        "formats",
+        "screenshot-inbox"
+      ]
+    },
+    {
+      "name": "ISNA Canada (Islamic Centre of Canada)",
+      "mosque_id": "37de4951-e091-4483-8d7c-9a1b3778bdce",
+      "url": "http://www.isnacanada.com/",
+      "image": "fixtures/isna-2026-11-03.jpg",
+      "taken": "2026-11-03",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of isnacanada.com, 3 Nov (browser bar cropped off): iqama large, 'Athan' small beside it; Shuruq under Fajr; Jummah 1/2 with Athan = slot time",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:40",
+        "asr": "15:45",
+        "maghrib": "17:15",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "15:00"
+        }
+      ],
+      "rules": [
+        "athan-beside-iqama",
+        "not-a-prayer",
+        "jumuah-athan",
+        "location-picker",
+        "screenshot-date",
+        "screenshot-inbox"
+      ]
+    },
+    {
+      "name": "Brampton and Regional Islamic Centre (BARIC)",
+      "mosque_id": "8c8752a3-96ab-4d46-b6f0-868ff6bc4116",
+      "url": "https://baric.ca/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "expect": "bot check",
+      "from": "Cloudflare 'Just a moment…' page to automated readers (3 Nov)",
+      "rules": [
+        "bot-check"
+      ]
+    },
+    {
+      "name": "ISNA Canada (Islamic Centre of Canada)",
+      "mosque_id": "37de4951-e091-4483-8d7c-9a1b3778bdce",
+      "url": "http://www.isnacanada.com/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "expect": "bot check",
+      "from": "Cloudflare 'Just a moment…' page to automated readers (3 Nov)",
+      "rules": [
+        "bot-check"
+      ]
+    },
+    {
+      "name": "Jame Masjid Mississauga",
+      "mosque_id": "ab6f1810-b435-4971-b250-7f0547e7116d",
+      "url": "http://ipcontario.com/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "expect": "bot check",
+      "from": "SiteGround 'Checking the site connection security' captcha (3 Nov)",
+      "rules": [
+        "bot-check"
+      ]
+    },
+    {
+      "name": "Mississauga Muslim Community",
+      "mosque_id": "e509cd96-4320-470c-9660-8a2c4b8745f9",
+      "url": "https://mississaugamuslim.ca/",
+      "valid_from": "2026-11-03",
+      "valid_to": "2099-12-31",
+      "expect": "bot check",
+      "from": "HTTP 403 Forbidden to automated readers (3 Nov)",
+      "rules": [
+        "bot-check"
       ]
     }
   ]

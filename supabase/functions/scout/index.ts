@@ -13,11 +13,16 @@
 //   a new standing rule ends the previous one for that prayer.
 // v15: target list computed here (partial coverage + 3-day browser refresh), no database function needed.
 // v16: adhan check also uses "an iqama never comes before the adhan"; unclear cases follow Claude's reading.
+// v17: timetable PDFs (linked from the site, or sent by the Browser Scout) go to Claude as documents.
+// v18: "Tomorrow" lines; screenshot inbox (ingest with source: "screenshot", stored as kind image).
+// v19: reading rules come from rules.ts (the rulebook); ingest dry-run for test fixtures; mode "blocked" records
+//   a bot check and the target list skips such sites for 7 days. Claude is told the mosque's address (location rules).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
 import adhan from "npm:adhan@4.4.3";
-import { collect } from "./collect.ts";
+import { collect, type Doc } from "./collect.ts";
+import { READ_RULES } from "./rules.ts";
 
 const OR_KEY = Deno.env.get("OPENROUTER_API_KEY");
 const AN_KEY = Deno.env.get("ANTHROPIC_API_KEY");
@@ -27,22 +32,8 @@ const GH_JWKS = createRemoteJWKSet(new URL("https://token.actions.githubusercont
 const SYSTEM = `You are the Scout for Adrik, an app that tells Muslims which congregation (jama'ah) they can still reach.
 Your only job: read a mosque's published prayer schedule and return the IQAMA (congregation start) times by calling the emit_timetable tool exactly once. Always call the tool; never answer in prose.
 
-Rules:
-- Iqama ≠ adhan. If a table has both ADHAN and IQAMA columns, extract IQAMA. Columns called "Begins", "Starts", "Start" or "Athan" are adhan; "Iqama", "Iqamah", "Jamaat", "Jama'ah", "Congregation" are iqama. If only one column exists and the page calls it "prayer times" with no iqama column, set has_iqama=false and still return the times with times_are="adhan".
-- Never invent a time. A cell you cannot read -> null. A month not on the page -> omit it.
-- Dates: ISO YYYY-MM-DD. Times: 24-hour HH:MM local to the mosque. Convert "4:15 pm" -> "16:15".
-- Rules beat tables. If the page says "Maghrib: Sunset", "5 minutes after adhan", "Isha fixed at 8:00 pm", return a rule in rules, not per-day rows for that prayer.
-- A change of iqama mid-month is normal. Return per-day rows; do not collapse to one value. A "today" box plus an "iqama time change" table: use the table for the dates it covers.
-- A block labelled with a date range ("Nov 2 - 6", "Effective Nov 1 – Nov 30") applies to every day in that range: return a row per day, or rules with valid_from/valid_to.
-- Jumu'ah: return each slot's khutbah start and salah start. If the page gives "Start" and "Iqamah" per slot, Start is the khutbah and Iqamah is the salah. If it gives only an iqamah/salah time, put it in salah_time and also in khutbah_time. If salah is N minutes after khutbah, return salah_offset_min=N and salah_time=null.
-- Multiple jama'ahs for one prayer -> separate entries in second_jamaah with seq 2, 3... and a label.
-- Time changes written as "X --> Y", "X → Y" or "X to Y" (e.g. at a DST change) mean the iqama moved from X to Y: Y is the current time. Under a heading like "Jamaat Timings" or "Iqama" these ARE iqama times (has_iqama=true).
-- Data feeds and widgets: "00:00", "--:--" or an empty value is a placeholder, never an iqama time. A placeholder Maghrib in a feed means the site shows sunset: return a Maghrib "sunset" rule.
-- "N min after adhan" (Mawaqit "+N"): return a rule — offset_from_adhan with minutes=N; for Maghrib use sunset_offset with minutes=N. Fixed times in a per-day calendar go in months as rows.
-- A Maghrib time with a note like "Maghrib is sunset time" is a sunset rule, not a fixed time.
-- Screenshots: when page screenshots or timetable images are attached, read them as part of the page. Prefer them over garbled text. Ignore generic city prayer-time widgets that are not this mosque's iqama.
-- Extract facilities only if explicitly stated. Otherwise null.
-- confidence is your honest 0-1 estimate that every returned time matches the page.`;
+Rules (general: they apply to every mosque):
+${READ_RULES}`;
 
 const SCHEMA = {
   type: "object",
@@ -76,6 +67,9 @@ const SCHEMA = {
 };
 
 type Img = { media_type: string; data: string };
+// deno-lint-ignore no-explicit-any
+type Out = Record<string, any>;
+type Att = { images: Img[]; docs: Pick<Doc, "media_type" | "data">[] };
 
 const userMsg = (text: string, mosqueName: string, today: string, browser: boolean) =>
   `Mosque: ${mosqueName}. Today is ${today}. Extract this month and next month if published. Call emit_timetable with the result.` +
@@ -88,9 +82,10 @@ function parseLooseJson(s: string) {
   return JSON.parse(s.slice(a, b + 1));
 }
 
-async function extractOpenRouter(text: string, mosqueName: string, today: string, images: Img[], browser: boolean) {
+async function extractOpenRouter(text: string, mosqueName: string, today: string, att: Att, browser: boolean) {
   const content = [{ type: "text", text: userMsg(text, mosqueName, today, browser) },
-    ...images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.media_type};base64,${i.data}` } }))];
+    ...att.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.media_type};base64,${i.data}` } })),
+    ...att.docs.map((d, n) => ({ type: "file", file: { filename: `timetable-${n + 1}.pdf`, file_data: `data:${d.media_type};base64,${d.data}` } }))];
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "Authorization": `Bearer ${OR_KEY}`, "Content-Type": "application/json", "HTTP-Referer": "https://adrik.app", "X-Title": "Adrik Scout" },
@@ -108,9 +103,10 @@ async function extractOpenRouter(text: string, mosqueName: string, today: string
   return call ? JSON.parse(call.function.arguments) : parseLooseJson(msg?.content ?? "");
 }
 
-async function extractAnthropic(text: string, mosqueName: string, today: string, images: Img[], browser: boolean) {
+async function extractAnthropic(text: string, mosqueName: string, today: string, att: Att, browser: boolean) {
   const content = [{ type: "text", text: userMsg(text, mosqueName, today, browser) },
-    ...images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.media_type, data: i.data } }))];
+    ...att.images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.media_type, data: i.data } })),
+    ...att.docs.map((d) => ({ type: "document", source: { type: "base64", media_type: "application/pdf", data: d.data } }))];
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": AN_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -129,6 +125,8 @@ async function extractAnthropic(text: string, mosqueName: string, today: string,
 }
 
 const extract = OR_KEY ? extractOpenRouter : extractAnthropic;
+// Name plus address, so Claude can tell this mosque's location from another branch (rule location-picker).
+const label = (m: Out) => (m.address ? `${m.name} (${m.address})` : m.name) as string;
 
 async function sha256(s: string) {
   const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -149,14 +147,13 @@ async function trusted(req: Request, db: SupabaseClient): Promise<boolean> {
   return !!data?.value && data.value === admin;
 }
 
-// deno-lint-ignore no-explicit-any
-type Out = Record<string, any>;
 
 // What the extraction says for one date — returned to the Browser Scout so it can check answer keys.
-function resolvedFor(out: Out, date: string) {
+function resolvedFor(out: Out, date: string, heldBack = false) {
   const p: Record<string, string | null> = {};
   for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
-    const row = (out.months ?? []).flatMap((m: Out) => m.rows ?? []).find((r: Out) => r.date === date);
+    // Held-back (adhan) rows are not used by the app, so they are not part of what it will show.
+    const row = heldBack ? undefined : (out.months ?? []).flatMap((m: Out) => m.rows ?? []).find((r: Out) => r.date === date);
     const rule = (out.rules ?? []).find((r: Out) => r.prayer === k && r.valid_from <= date && (!r.valid_to || r.valid_to >= date));
     p[k] = row?.[k] ?? (rule ? (rule.kind === "fixed" ? rule.fixed_time : rule.kind === "sunset" ? "sunset" : `${rule.kind === "sunset_offset" ? "sunset" : "adhan"}+${rule.minutes}`) : null);
   }
@@ -203,11 +200,15 @@ function adhanVerdict(m: Out, out: Out): { verdict: "adhan" | "iqama" | "unclear
   return { verdict, close, early, total };
 }
 
+// Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
+function classify(m: Out, out: Out) {
+  const av = adhanVerdict(m, out);
+  return { av, isAdhan: av.verdict === "adhan" || (av.verdict !== "iqama" && !out.has_iqama) };
+}
+
 async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: string, kind: string) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz }).format(new Date());
-  const av = adhanVerdict(m, out);
-  // Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
-  const isAdhan = av.verdict === "adhan" || (av.verdict !== "iqama" && !out.has_iqama);
+  const { av, isAdhan } = classify(m, out);
   const needsReview = isAdhan || (out.confidence ?? 0) < 0.8 || (av.verdict === "iqama" && !out.has_iqama);
   const check = av.total ? ` [Adhan check: ${av.close}/${av.total} within 3 min of the calculated adhan, ${av.early} before it → ${isAdhan ? "held back as adhan" : "stored as iqama"}.]` : "";
   const { data: src } = await db.from("sources").insert({
@@ -250,28 +251,33 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
 
   return { status: "ok", provider: OR_KEY ? "openrouter" : "anthropic", model: MODEL, source_id: sid, rows: rows.length, rules: rules.length, jumuah: jum.length,
     confidence: out.confidence, needs_review: needsReview, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
-    adhan_check: av, resolved_today: resolvedFor(out, today) };
+    adhan_check: av, resolved_today: resolvedFor(out, today, isAdhan) };
 }
 
-// Mosques the Browser Scout should read today: active with a website, and either fewer than all five
-// prayers covered for today (rows or standing rules), or last read by the browser more than 3 days ago.
+// Rule daily-targets: mosques the Browser Scout should read today — every active mosque with a website (new ones
+// included) with fewer than all five prayers covered today (rows or standing rules), or last read by the browser
+// more than 3 days ago. Rule bot-check: sites that refused the reader in the last 7 days are listed as blocked.
 async function browserTargets(db: SupabaseClient) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const [{ data: ms }, { data: rows }, { data: rules }, { data: srcs }] = await Promise.all([
     db.from("mosques").select("id,name,website,community").eq("active", true).not("website", "is", null),
     db.from("iqama_rows").select("mosque_id,prayer").eq("date", today).eq("quarantined", false).limit(5000),
     db.from("iqama_rules").select("mosque_id,prayer").lte("valid_from", today).or(`valid_to.is.null,valid_to.gte.${today}`).limit(5000),
-    db.from("sources").select("mosque_id,fetched_at").eq("kind", "browser").order("fetched_at", { ascending: false }).limit(5000),
+    db.from("sources").select("mosque_id,fetched_at,notes").eq("kind", "browser").order("fetched_at", { ascending: false }).limit(5000),
   ]);
   const cov = new Map<string, Set<string>>();
   for (const x of [...(rows ?? []), ...(rules ?? [])]) { const s = cov.get(x.mosque_id) ?? new Set(); s.add(x.prayer); cov.set(x.mosque_id, s); }
-  const lastBrowser = new Map<string, string>();
-  for (const x of srcs ?? []) if (!lastBrowser.has(x.mosque_id)) lastBrowser.set(x.mosque_id, x.fetched_at);
-  const stale = Date.now() - 3 * 864e5;
-  return (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id) ?? null }))
+  const lastBrowser = new Map<string, { at: string; bot: boolean }>();
+  for (const x of srcs ?? []) if (!lastBrowser.has(x.mosque_id)) lastBrowser.set(x.mosque_id, { at: x.fetched_at, bot: /^BOT CHECK/.test(x.notes ?? "") });
+  const stale = Date.now() - 3 * 864e5, botWait = Date.now() - 7 * 864e5;
+  // Rule bot-check: a site that showed a bot check is not visited again for 7 days.
+  const all = (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
+  const blocked = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > botWait && m.covered < 5);
+  const targets = all.filter((m) => !blocked.includes(m))
     .filter((m) => m.covered < 5 || (m.last_browser && Date.parse(m.last_browser) < stale))
-    .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "weekly browser refresh" }))
+    .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "browser refresh (every 3 days)" }))
     .sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || a.name.localeCompare(b.name));
+  return { targets, blocked: blocked.map((m) => ({ id: m.id, name: m.name, website: m.website, since: m.last_browser, reason: "bot check: needs a screenshot or the mosque's feed" })) };
 }
 
 Deno.serve(async (req) => {
@@ -282,29 +288,46 @@ Deno.serve(async (req) => {
 
     if (body.mode === "targets") {
       if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
-      return Response.json({ targets: await browserTargets(db) });
+      return Response.json(await browserTargets(db));
     }
 
     const { data: m, error } = await db.from("mosques").select("*").eq("id", body.mosque_id).single();
     if (error || !m) return Response.json({ error: "mosque not found" }, { status: 404 });
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz }).format(new Date());
 
+    if (body.mode === "blocked") {   // rule bot-check: record it, never force past it
+      if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
+      const { data: src } = await db.from("sources").insert({ mosque_id: m.id, kind: "browser", url: body.url ?? m.website, needs_review: true,
+        notes: `BOT CHECK: ${String(body.reason ?? "the site showed a bot check to the browser reader").slice(0, 300)}. Not read; needs a screenshot or the mosque's own feed.` }).select("id").single();
+      return Response.json({ status: "blocked", source_id: src?.id });
+    }
+
     if (body.mode === "ingest") {
       if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
       const text = String(body.text ?? "").slice(0, 120_000);
       const images: Img[] = (Array.isArray(body.images) ? body.images : []).slice(0, 4)
         .filter((i: Img) => /^image\/(png|jpeg|webp|gif)$/.test(i?.media_type) && typeof i?.data === "string" && i.data.length < 5_000_000);
-      const hash = await sha256(text + images.map((i) => i.data.slice(0, 2000)).join("|"));
-      const out = await extract(text, m.name, today, images, true);
-      return Response.json({ ...(await store(db, m, out, hash, body.url ?? m.website, "browser")), images: images.length });
+      const docs = (Array.isArray(body.docs) ? body.docs : []).slice(0, 2)
+        .filter((d: Img) => d?.media_type === "application/pdf" && typeof d?.data === "string" && d.data.length < 6_500_000);
+      const hash = await sha256(text + [...images, ...docs].map((i) => i.data.slice(0, 2000)).join("|"));
+      const shot = body.source === "screenshot";   // a community member's screenshot of the mosque's own site
+      const out = await extract(shot ? `A community member sent this screenshot of ${m.name}'s own website (${body.url ?? m.website ?? "site"}), taken ${body.taken ?? today}. ${text}` : text,
+        label(m), today, { images, docs }, !shot);
+      if (body.dry) {   // test fixture: read with every rule, write nothing
+        const { av, isAdhan } = classify(m, out);
+        return Response.json({ status: "dry", confidence: out.confidence, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
+          adhan_check: av, rows: (out.months ?? []).reduce((n: number, mo: Out) => n + (mo.rows?.length ?? 0), 0), rules: out.rules?.length ?? 0, jumuah: out.jumuah?.length ?? 0,
+          resolved_today: resolvedFor(out, String(body.taken ?? today), isAdhan) });
+      }
+      return Response.json({ ...(await store(db, m, out, hash, body.url ?? m.website, shot ? "image" : "browser")), images: images.length, docs: docs.length });
     }
 
     if (!m.website) return Response.json({ error: "mosque has no website" }, { status: 400 });
-    const { text, urls } = await collect(m.website);
-    const hash = await sha256(text);
+    const { text, urls, docs } = await collect(m.website);
+    const hash = await sha256(text + docs.map((d) => d.data.slice(0, 4000)).join("|"));
     const { data: last } = await db.from("sources").select("raw_hash").eq("mosque_id", m.id).eq("kind", "website").order("fetched_at", { ascending: false }).limit(1).maybeSingle();
     if (!body.force && last?.raw_hash === hash) return Response.json({ status: "unchanged" });
-    const out = await extract(text, m.name, today, [], false);
+    const out = await extract(text, label(m), today, { images: [], docs }, false);
     return Response.json(await store(db, m, out, hash, urls[0], "website"));
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });

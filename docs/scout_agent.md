@@ -91,6 +91,16 @@ Expected values for 2026-10-26 after materialisation:
 A Supabase view `sources where needs_review` plus a one-screen admin page: page screenshot on the left, extracted table on the right, Approve / Fix / Mark platform. Every Fix is stored as `source_kind = 'manual'` and becomes a regression fixture.
 
 
+## Rulebook (added 3 Nov 2026)
+
+Every lesson learned from a mosque site is a general rule in `supabase/functions/scout/rules.ts`, applied to every
+mosque including new ones: the Scout's reading instructions are built from it, and code checks, plain-reader and
+browser rules are listed there with where they live. `docs/scout_rulebook.md` is generated from it
+(`node scripts/browser-scout/rulebook.mjs`). Every answer key lists the rules it tests; `node scout.mjs --check`
+(run on every push and every Sunday) reports each rule as passing, failing or untested. Screenshots sent for sites
+that refuse automated readers go through the screenshot inbox (`node scout.mjs --image <file> --id <uuid>`), and are
+kept as fixtures that are re-read on every check without writing to the database.
+
 ## Browser Scout (added 3 Nov 2026)
 
 Some mosque sites only show their times after scripts run, inside widgets, or as images. The Browser Scout

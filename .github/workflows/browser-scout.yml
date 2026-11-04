@@ -29,6 +29,8 @@ jobs:
   scout:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      NODE_OPTIONS: --experimental-strip-types   # scout.mjs reads the rulebook (rules.ts)
     defaults:
       run:
         working-directory: scripts/browser-scout

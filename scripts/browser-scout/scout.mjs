@@ -15,6 +15,11 @@
 //   node scout.mjs --id <uuid> --url <site> [--id … --url …]   read specific mosques
 //   node scout.mjs --check [--id …]     read the mosques in answer-keys.json and compare with their keys
 //   node scout.mjs --dry --url <url>    capture only (no Claude, no database); writes ./out/
+//   node scout.mjs --image <file> --id <uuid> [--taken YYYY-MM-DD] [--url <site>] [--dry]
+//                                       screenshot inbox: a community member's screenshot of the mosque's own site,
+//                                       read with the same rules (--dry: read only, store nothing)
+// Every lesson is a general rule in supabase/functions/scout/rules.ts; --check reports each rule as passing,
+// failing or untested, from the rule ids listed in answer-keys.json.
 // Auth: in GitHub Actions a GitHub OIDC token is used automatically; elsewhere set ADRIK_SCOUT_ADMIN_TOKEN.
 import { chromium } from "playwright";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
@@ -24,6 +29,10 @@ const API = process.env.ADRIK_SCOUT_URL ?? "https://fbowvnwytutltsdnjcxb.supabas
 const ANON = process.env.ADRIK_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZib3d2bnd5dHV0bHRzZG5qY3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5MzIzNDEsImV4cCI6MjEwODUwODM0MX0.nLpuv5rDvdka8tfuZ3Ic_T1SdceNtPDTzfhkg6NEYVc";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 AdrikScout/0.2";
 const LINK_RE = /prayer|salah|salat|namaz|iqama|iqamah|jamaat|timing|timetable|اوقات|الصلاة/i;
+// Rule bot-check: challenge pages are recognised and left alone (never solved or forced).
+const BOT_TITLE = /just a moment|attention required|verify you are human|checking your browser|security check|are you a robot|access denied/i;
+const BOT_TEXT = /verify you are human|checking (if )?the site connection( is)? secur|checking your browser|enable javascript and cookies to continue|requires cookies to be enabled|performing security verification|needs to review the security of your connection|you have been blocked|access denied|forbidden|don't have permission to access/i;
+const BOT_URL = /\/\.well-known\/sgcaptcha|\/cdn-cgi\/challenge-platform|[?&]__cf_chl|captcha/i;
 const IMG_RE = /prayer|salah|salat|namaz|timetable|time-?table|iqama|jamaat|schedule|calendar|ramadan|timing|monthly/i;
 
 const args = process.argv.slice(2);
@@ -121,10 +130,28 @@ async function grab(page, out, label) {
   }
 }
 
+class BotCheck extends Error {}
+// A challenge page (Cloudflare, SiteGround, captcha) or a short refusal (HTTP 401/403/406/429): the site
+// does not let automated readers in. Long pages that merely mention "captcha" (contact forms) are not refusals.
+async function botCheck(page, status) {
+  const title = await page.title().catch(() => "");
+  const text = await page.evaluate(() => (document.body?.innerText ?? "").slice(0, 4000)).catch(() => "");
+  const challenge = page.frames().some((f) => /challenges\.cloudflare\.com|hcaptcha\.com\/captcha|turnstile/i.test(f.url()));
+  const short = text.length < 2500;
+  const why = BOT_TITLE.test(title) ? title.trim()
+    : short && BOT_URL.test(page.url()) ? "captcha page"
+    : short && challenge ? "challenge widget"
+    : short && BOT_TEXT.test(text) ? (text.match(BOT_TEXT)?.[0] ?? "refusal")
+    : short && [401, 403, 406, 429].includes(status) ? `HTTP ${status}` : null;
+  return why ? `${why}${status && status !== 200 ? ` (HTTP ${status})` : ""} at ${page.url()}` : null;
+}
+
 async function readPage(page, url, out) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
+  const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 35_000 });
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   await page.waitForTimeout(3_000);
+  const bot = await botCheck(page, resp?.status());
+  if (bot) throw new BotCheck(bot);
   await grab(page, out, page.url());
   // Schedules some sites keep in their page code (e.g. a WordPress prayer plugin's settings).
   const data = await page.$$eval("script:not([src])", (els) => els.map((e) => e.textContent || "")
@@ -162,12 +189,13 @@ async function capture(browser, site) {
   const page = await ctx.newPage();
   const out = { text: [], images: [], pages: [site] };
   try {
-    const links = await readPage(page, site, out);
+    let links;
+    try { links = await readPage(page, site, out); } catch (e) { if (e instanceof BotCheck) return { blocked: e.message }; throw e; }
     const base = new URL(page.url());
     const next = [...new Map(links.filter((l) => {
       try { const u = new URL(l.href); return bare(u.host) === bare(base.host) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
     }).map((l) => [l.href.split("#")[0], l])).values()].slice(0, 2);
-    for (const l of next) { try { out.pages.push(l.href); await readPage(page, l.href.split("#")[0], out); } catch { /* skip */ } }
+    for (const l of next) { try { out.pages.push(l.href); await readPage(page, l.href.split("#")[0], out); } catch { /* skip (a bot check on a sub-page just ends that page) */ } }
     if (!out.images.length) {   // nothing recognisable: one screenshot of the top of the home page
       await page.goto(site, { waitUntil: "domcontentloaded", timeout: 35_000 }).catch(() => {});
       await page.waitForTimeout(4_000);
@@ -194,24 +222,71 @@ function compare(key, got) {
   return diffs;
 }
 
+const keyFile = new URL("./answer-keys.json", import.meta.url);
+const keys = JSON.parse(await readFile(keyFile, "utf8"));
+const mediaType = (f) => /\.png$/i.test(f) ? "image/png" : /\.webp$/i.test(f) ? "image/webp" : "image/jpeg";
+
+// Screenshot inbox: no browser needed.
+async function readScreenshot({ file, id, taken, url, dry }) {
+  const data = (await readFile(file)).toString("base64");
+  return call({ mode: "ingest", source: "screenshot", dry, mosque_id: id, url, taken, text: "", images: [{ media_type: mediaType(file), data }] });
+}
+if (values("--image").length && !flag("--check")) {
+  const ids = values("--id"), taken = values("--taken"), urls = values("--url");
+  for (const [i, file] of values("--image").entries()) {
+    try {
+      const res = await readScreenshot({ file, id: ids[i], taken: taken[i] ?? taken[0], url: urls[i], dry: flag("--dry") });
+      console.log(`• ${file}: ${res.status === "dry" ? "dry run, " : ""}${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, stored as ${res.stored_as}`);
+      if (res.status === "dry") console.log("    " + JSON.stringify(res.resolved_today) + "\n    notes: " + res.notes);
+    } catch (e) { process.exitCode = 1; console.log(`• ${file}: ERROR ${String(e).slice(0, 200)}`); }
+  }
+  process.exit();
+}
+
+// Per-rule test report (rule ids come from the rulebook; keys list the rules they exercise).
+const { RULES } = await import(new URL("../../supabase/functions/scout/rules.ts", import.meta.url));
+const ruleIds = new Set(RULES.map((r) => r.id));
+for (const k of keys.keys) for (const r of k.rules ?? []) if (!ruleIds.has(r)) throw new Error(`answer key ${k.name}: unknown rule "${r}"`);
+const ruleResult = new Map();   // id -> { pass: [], fail: [], stale: [] }
+const record = (key, status) => { for (const r of key.rules ?? []) { const e = ruleResult.get(r) ?? { pass: [], fail: [], stale: [] }; e[status].push(key.name); ruleResult.set(r, e); } };
+
 const browser = await chromium.launch();
 try {
   let targets;
-  const keys = JSON.parse(await readFile(new URL("./answer-keys.json", import.meta.url), "utf8"));
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
+  const chosen = (k) => !values("--id").length || values("--id").includes(k.mosque_id);
   if (flag("--dry")) targets = values("--url").map((u) => ({ name: u, website: u }));
-  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => !values("--id").length || values("--id").includes(k.mosque_id)).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
+  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => chosen(k) && !k.image).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
   else if (values("--id").length) {
     const urls = values("--url");
     const known = urls.length ? [] : (await call({ mode: "targets" })).targets;
     targets = values("--id").map((id, i) => ({ id, website: urls[i] ?? known.find((k) => k.id === id)?.website }));
   }
-  else targets = (await call({ mode: "targets" })).targets;
+  else {
+    const t = await call({ mode: "targets" });
+    targets = t.targets;
+    for (const b of t.blocked ?? []) console.log(`• ${b.name}: skipped — ${b.reason} (since ${String(b.since).slice(0, 10)})`);
+  }
   console.log(`Browser Scout: ${targets.length} mosque(s)`);
   let fails = 0;
+  const verdict = (line, key, diffs, stale) => {
+    if (stale) { record(key, "stale"); console.log(`${line}\n    ⚠ ${stale}`); return; }
+    record(key, diffs.length ? "fail" : "pass");
+    if (diffs.length) fails++;
+    console.log(`${line}\n    ${diffs.length ? "✗ " + diffs.join("\n    ✗ ") : "✓ matches the answer key"}`);
+  };
   for (const t of targets) {
     const t0 = Date.now();
     try {
       const cap = await capture(browser, t.website);
+      const keyFor = (d) => keys.keys.find((k) => k.mosque_id === t.id && !k.image && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id && !k.image);
+      if (cap.blocked) {
+        const line = `• ${t.name ?? t.website}: bot check — not read (${cap.blocked})`;
+        if (!flag("--dry")) await call({ mode: "blocked", mosque_id: t.id, url: t.website, reason: cap.blocked });
+        if (flag("--check")) { const key = keyFor(today); verdict(line, key, key.expect === "bot check" ? [] : ["site showed a bot check"]); }
+        else console.log(line);
+        continue;
+      }
       if (flag("--dry")) {
         await mkdir("out", { recursive: true });
         const slug = t.website.replace(/https?:\/\/(www\.)?/, "").replace(/[^a-z0-9]+/gi, "_").slice(0, 40);
@@ -224,16 +299,31 @@ try {
       const line = `• ${t.name ?? t.id}: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${cap.images.length} image(s), ${Math.round((Date.now() - t0) / 1000)}s` +
         (res.stored_as && res.stored_as !== "iqama" ? ` — ${res.stored_as}` : "");
       if (flag("--check")) {
-        const d = res.resolved_today?.date;
-        const key = keys.keys.find((k) => k.mosque_id === t.id && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id);
-        const inRange = d >= key.valid_from && d <= key.valid_to;
-        const diffs = !inRange ? [`key covers ${key.valid_from}..${key.valid_to}; today is ${d} — key needs a fresh screenshot`]
-          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
-          : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []);
-        if (diffs.length) fails++;
-        console.log(`${line}\n    ${diffs.length ? "✗ " + diffs.join("\n    ✗ ") : "✓ matches the answer key"}`);
+        const d = res.resolved_today?.date, key = keyFor(d);
+        if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); continue; }
+        if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); continue; }
+        verdict(line, key, key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
+          : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
+  }
+  // Screenshot fixtures: re-read every check with all the rules, writing nothing (dry run).
+  if (flag("--check")) for (const key of keys.keys.filter((k) => k.image && chosen(k))) {
+    const t0 = Date.now();
+    try {
+      const res = await readScreenshot({ file: new URL(key.image, keyFile), id: key.mosque_id, taken: key.taken, url: key.url, dry: true });
+      verdict(`• ${key.name} [screenshot ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s`,
+        key, compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
+    } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [screenshot]: ERROR ${String(e).slice(0, 200)}`); }
+  }
+  if (flag("--check")) {
+    console.log("\nRules (supabase/functions/scout/rules.ts):");
+    for (const r of RULES) {
+      const e = ruleResult.get(r.id);
+      const mark = e?.fail.length ? "✗" : e?.pass.length ? "✓" : e?.stale.length ? "⚠" : "·";
+      const tail = e?.fail.length ? `failing: ${e.fail.join(", ")}` : e?.pass.length ? `${e.pass.length} key(s)` : e?.stale.length ? `only expired keys: ${e.stale.join(", ")}` : (["read", "browser"].includes(r.kind) && !values("--id").length ? "no answer key yet" : "");
+      console.log(`  ${mark} ${r.kind.padEnd(7)} ${r.id}${tail ? " — " + tail : ""}`);
+    }
   }
   if (flag("--check") && fails) process.exitCode = 1;
 } finally { await browser.close(); }

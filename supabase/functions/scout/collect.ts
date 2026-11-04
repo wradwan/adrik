@@ -14,6 +14,33 @@ const WIDGET_RE = /themasjidapp|masjidbox|mawaqit|masjidal|masjidiapp|connect-?m
 // Data feeds a page fetches by script.
 const FEED_RE = /https?:\/\/[^"'`\s<>()\\]*?(?:firebaseio\.com\/[^"'`\s<>()\\]*?\.json|script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec|\/[^"'`\s<>()\\]*(?:prayer|iqama|iqamah|salah|salat|namaz|jamaat)[^"'`\s<>()\\]*\.json)/gi;
 const FEED_SKIP = /sunrise-sunset|maps\.googleapis|googletagmanager|google-analytics/i;
+// Timetable PDFs linked from the site (monthly / yearly calendars).
+const PDF_WORDS = /salah|salat|prayer|namaz|iqama|iqamah|jamaat|timetable|time-table|calendar|schedule|timing/i;
+export type Doc = { media_type: string; data: string; url: string };
+
+function b64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+export async function fetchPdf(url: string): Promise<Doc | null> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
+    if (!r.ok || !/pdf/i.test(r.headers.get("content-type") ?? "")) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length > 4_500_000 || bytes.length < 1000) return null;
+    return { media_type: "application/pdf", data: b64(bytes), url };
+  } catch { return null; }
+}
+
+function pdfLinks(html: string, base: URL): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/<a[^>]+href=["']([^"']+\.pdf(?:\?[^"']*)?)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    try { const u = new URL(m[1].replace(/&amp;/g, "&"), base); if (PDF_WORDS.test(u.pathname) || PDF_WORDS.test(htmlToText(m[2]))) out.push(u.toString()); } catch { /* skip */ }
+  }
+  return out;
+}
 
 export function htmlToText(html: string): string {
   return html
@@ -98,7 +125,11 @@ async function feeds(htmls: string[], base: URL): Promise<string[]> {
   return [...found].slice(0, 3);
 }
 
-export async function collect(site: string): Promise<{ text: string; urls: string[] }> {
+export async function collect(site: string): Promise<{ text: string; urls: string[]; docs: Doc[] }> {
+  if (/\.pdf(\?|$)/i.test(site)) {
+    const d = await fetchPdf(site);
+    return { text: `=== timetable PDF attached: ${site} ===`, urls: [site], docs: d ? [d] : [] };
+  }
   const home = await fetchText(site);
   const base = new URL(site);
   const links = new Set<string>();
@@ -116,9 +147,13 @@ export async function collect(site: string): Promise<{ text: string; urls: strin
     try { const h = await fetchText(u); htmls.push(h); parts.push(`\n\n=== ${u} ===\n` + pageText(u, h)); iframes(h, new URL(u)).forEach((w) => extra.add(w)); } catch { /* skip */ }
   }
   for (const f of await feeds(htmls, base)) extra.add(f);
+  // Timetable PDFs: the site itself may be one, or link to them.
+  const pdfUrls = [...new Set([...(/\.pdf(\?|$)/i.test(site) ? [site] : []), ...htmls.flatMap((h) => pdfLinks(h, base))])].slice(0, 2);
+  const docs = (await Promise.all(pdfUrls.map(fetchPdf))).filter((d): d is Doc => !!d);
   const done = new Set([site, ...pages]);
   for (const w of [...extra].filter((w) => !done.has(w)).slice(0, 4)) {
     try { parts.push(`\n\n=== embedded timetable widget / data feed ${w} ===\n` + pageText(w, await fetchText(w)).slice(0, 20_000)); } catch { /* skip */ }
   }
-  return { text: parts.join("\n").slice(0, 120_000), urls: [site, ...pages, ...extra] };
+  if (docs.length) parts.push(`\n\n=== timetable PDF(s) attached: ${docs.map((d) => d.url).join(", ")} ===`);
+  return { text: parts.join("\n").slice(0, 120_000), urls: [site, ...pages, ...extra], docs };
 }

@@ -1,0 +1,174 @@
+// Adrik Scout rulebook — every lesson learned from a mosque site, written as a GENERAL rule that applies to
+// every mosque, including ones added later. One source of truth:
+//   - kind "read"    → sent to Claude as its reading instructions (the Scout's system prompt is built from these)
+//   - kind "check"   → enforced in code by the scout edge function (index.ts) after Claude has read the page
+//   - kind "collect" → the plain-HTTP Scout (collect.ts) uses it to find where a site keeps its times
+//   - kind "browser" → the Browser Scout (scripts/browser-scout/scout.mjs) uses it in a real browser
+//   - kind "process" → how people and the system keep the rules honest
+// Tests: answer keys in scripts/browser-scout/answer-keys.json list the rule ids they exercise; `node scout.mjs --check`
+// reports every rule as passing, failing, or untested. docs/scout_rulebook.md is generated from this file
+// (`node scripts/browser-scout/rulebook.mjs`).
+//
+// Adding a lesson: a new site breaks the Scout → write the general rule here (never hand-enter that mosque's times),
+// add an answer key that would have caught it, list the rule id in the key, push. The check runs on every push.
+
+export type Rule = {
+  id: string;
+  kind: "read" | "check" | "collect" | "browser" | "process";
+  rule: string;          // the general rule, mosque-independent
+  learned_from: string;  // the case that taught it
+  where?: string;        // code location, for non-read rules
+};
+
+export const RULES: Rule[] = [
+  // ── Reading a schedule (Claude) ────────────────────────────────────────────────────────────────────────────
+  { id: "iqama-not-adhan", kind: "read",
+    rule: `Iqama ≠ adhan. If a table has both ADHAN and IQAMA columns, extract IQAMA. Columns called "Begins", "Starts", "Start" or "Athan" are adhan; "Iqama", "Iqamah", "Jamaat", "Jama'ah", "Congregation" are iqama. If only one column exists and the page calls it "prayer times" with no iqama column, set has_iqama=false and still return the times with times_are="adhan".`,
+    learned_from: "Scout design; Ar-Rashaad, Masjid Mubarak, Bab ul Ilm (single-column pages)" },
+  { id: "athan-beside-iqama", kind: "read",
+    rule: `When each prayer shows two times and only one of them is labelled Athan/Adhan/Begins/Start, the other (usually the larger, unlabelled time) is the iqama.`,
+    learned_from: "ISNA Canada / Islamic Centre of Canada (big iqama time, small 'Athan' time beside it)" },
+  { id: "next-iqamah-label", kind: "read",
+    rule: `A "Next Iqamah" / "until iqamah" countdown above a single list of times labels that list as iqama times, even under a "Prayer Times" heading: set has_iqama=true.`,
+    learned_from: "BARIC (heading 'Prayer Times', countdown 'Next Iqamah: Fajr')" },
+  { id: "not-a-prayer", kind: "read",
+    rule: `Shuruq/Sunrise, Imsak, Sunset, Midnight, Tahajjud and Ishraq rows are not congregational prayers: never return them as an iqama. Countdown timers, "current time" and clocks are not schedule times.`,
+    learned_from: "ISNA (Shuruq under Fajr), Bab ul Ilm (Imsak, Sunrise), Masjid Mubarak (Sunset row), BARIC/ISNA countdowns" },
+  { id: "never-invent", kind: "read",
+    rule: `Never invent a time. A cell you cannot read -> null. A month not on the page -> omit it.`,
+    learned_from: "Scout design" },
+  { id: "formats", kind: "read",
+    rule: `Dates: ISO YYYY-MM-DD. Times: 24-hour HH:MM local to the mosque. Convert "4:15 pm" -> "16:15".`,
+    learned_from: "Scout design" },
+  { id: "rules-beat-tables", kind: "read",
+    rule: `Rules beat tables. If the page says "Maghrib: Sunset", "5 minutes after adhan", "Isha fixed at 8:00 pm", return a rule in rules, not per-day rows for that prayer.`,
+    learned_from: "Rahmat (Maghrib sunset+3), Al Hassan, Masjid-E-Aqsa" },
+  { id: "maghrib-sunset-note", kind: "read",
+    rule: `A Maghrib time with a note like "Maghrib is sunset time" is a sunset rule, not a fixed time.`,
+    learned_from: "Masjid-E-Aqsa (page note: Maghrib at sunset)" },
+  { id: "today-box-plus-change-table", kind: "read",
+    rule: `A change of iqama mid-month is normal. Return per-day rows; do not collapse to one value. A "today" box plus an "iqama time change" table: use the table for the dates it covers.`,
+    learned_from: "BICC (today's box + change table for 01–10 Nov)" },
+  { id: "date-range-block", kind: "read",
+    rule: `A block labelled with a date range ("Nov 2 - 6", "Effective Nov 1 – Nov 30") applies to every day in that range: return a row per day, or rules with valid_from/valid_to.`,
+    learned_from: "Ar-Rashaad ('Nov 2 - 6'), Al Hassan ('Effective Nov 1 - 30')" },
+  { id: "jumuah-start-iqamah", kind: "read",
+    rule: `Jumu'ah: return each slot's khutbah start and salah start. If the page gives "Start" and "Iqamah" per slot, Start is the khutbah and Iqamah is the salah. If it gives only an iqamah/salah time, put it in salah_time and also in khutbah_time. If salah is N minutes after khutbah, return salah_offset_min=N and salah_time=null.`,
+    learned_from: "Masjid-E-Aqsa (4 slots, iqamah only), BICC, Rowdah, DawaNet (start + iqamah)" },
+  { id: "jumuah-athan", kind: "read",
+    rule: `A Jumu'ah slot listed with an "Athan" time equal to the slot's time: that time is the khutbah start (the Friday adhan is called as the khateeb takes the minbar). Return khutbah_time = that time and salah_time = null.`,
+    learned_from: "ISNA (Jummah 1 1:00 PM / Athan 1:00 PM; Jummah 2 3:00 PM / Athan 3:00 PM)" },
+  { id: "second-jamaah", kind: "read",
+    rule: `Multiple jama'ahs for one prayer -> separate entries in second_jamaah with seq 2, 3... and a label.`,
+    learned_from: "Scout design" },
+  { id: "arrow-change", kind: "read",
+    rule: `Time changes written as "X --> Y", "X → Y" or "X to Y" (e.g. at a DST change) mean the iqama moved from X to Y: Y is the current time. Under a heading like "Jamaat Timings" or "Iqama" these ARE iqama times (has_iqama=true).`,
+    learned_from: "Rahmat ('Jamaat Timings' box at the November DST change)" },
+  { id: "feed-placeholders", kind: "read",
+    rule: `Data feeds and widgets: "00:00", "--:--" or an empty value is a placeholder, never an iqama time. A placeholder Maghrib in a feed means the site shows sunset: return a Maghrib "sunset" rule.`,
+    learned_from: "Site data feeds read by the HTTP Scout (Maghrib left empty when the site shows sunset)" },
+  { id: "mawaqit-offset", kind: "read",
+    rule: `"N min after adhan" (Mawaqit "+N"): return a rule — offset_from_adhan with minutes=N; for Maghrib use sunset_offset with minutes=N. Fixed times in a per-day calendar go in months as rows.`,
+    learned_from: "Anatolia Islamic Centre (Mawaqit: Asr +5, Maghrib +3)" },
+  { id: "tomorrow-line", kind: "read",
+    rule: `A "Tomorrow" line under a prayer (or a "tomorrow's iqama change" note) gives that prayer's iqama for the NEXT date: today's value is the one in the prayer's own row; return the tomorrow value as a row for tomorrow's date. In flattened text like "MAGHRIB / TOMORROW 5:07 5:12 / 5:11", 5:07 is the start, 5:12 today's iqama and 5:11 tomorrow's.`,
+    learned_from: "Rowdah Centre (prayertimedisplay.com widget, red 'Tomorrow' line)" },
+  { id: "screenshot-date", kind: "read",
+    rule: `A screenshot sent by a community member shows one day: use the date it displays (not the day it was received).`,
+    learned_from: "Screenshot inbox (BARIC, ISNA)" },
+  { id: "ignore-city-widgets", kind: "read",
+    rule: `Screenshots: when page screenshots or timetable images are attached, read them as part of the page and prefer them over garbled text. Ignore generic city prayer-time widgets (e.g. "Toronto prayer times") that are not this mosque's iqama.`,
+    learned_from: "Ar-Rashaad (timesprayer.com Toronto widget beside the real block), Masjid Mubarak (Vaughan city table)" },
+  { id: "pdf-year-columns", kind: "read",
+    rule: `An attached PDF is a timetable the mosque links to: read it as part of the page, check which year it is for, and whether its columns are iqama or prayer-start times. A perpetual or past-year calculated timetable is adhan times, not iqama.`,
+    learned_from: "Islamic Forum of Canada (2011 perpetual start-time PDF)" },
+  { id: "location-picker", kind: "read",
+    rule: `Sites with several locations or a "Change location" picker: use the times for this mosque's own location. A mosque's own website often names its centre differently from our list (the organization's name vs. the centre's name, an acronym vs. the full name), so on the mosque's own site the location shown by default IS this mosque — unless the page clearly names a different city or address than the one given for this mosque. Only then return no times.`,
+    learned_from: "ISNA Canada (site shows its centre 'Islamic Centre of Canada (ICC)' with a location picker; a stricter first version of this rule wrongly returned nothing — caught by the screenshot fixture)" },
+  { id: "facilities-explicit", kind: "read",
+    rule: `Extract facilities only if explicitly stated. Otherwise null.`,
+    learned_from: "Scout design" },
+  { id: "honest-confidence", kind: "read",
+    rule: `confidence is your honest 0-1 estimate that every returned time matches the page.`,
+    learned_from: "Scout design" },
+
+  // ── Checks in code after Claude reads (scout edge function) ─────────────────────────────────────────────────
+  { id: "adhan-check", kind: "check", where: "index.ts adhanVerdict()",
+    rule: `Adhan vs iqama is decided by arithmetic, not by the page's label: compare Fajr/Dhuhr/Asr/Isha with the calculated adhan for the mosque's location and date. ≥60% within 3 min → adhan (held back); ≤25% → iqama; in between, Claude's reading decides.`,
+    learned_from: "Ar-Rashaad (wrongly held back because its block says 'Prayer Times'), Masjid Mubarak (correctly held back)" },
+  { id: "iqama-never-before-adhan", kind: "check", where: "index.ts adhanVerdict()",
+    rule: `An iqama can never come before the adhan: any time more than 5 min before the earliest possible adhan (Shafi) marks the set as adhan/calculated times and holds it back.`,
+    learned_from: "Bab ul Ilm (Jafari Fajr before the ISNA adhan), other calculated-time pages" },
+  { id: "rule-replacement", kind: "check", where: "index.ts store()",
+    rule: `A new standing rule for a prayer ends the older open rule for that prayer the day before the new one starts — mosques change times, and the old rule must not linger.`,
+    learned_from: "Al-Hikmah Centre (Asr moved 15:30 → 15:00 on 3 Nov)" },
+  { id: "no-placeholder-rows", kind: "check", where: "index.ts store()",
+    rule: `"00:00" values are never stored as iqama rows.`,
+    learned_from: "Site data feeds with empty Maghrib" },
+  { id: "review-low-confidence", kind: "check", where: "index.ts store()",
+    rule: `A read with confidence below 0.8, or held back as adhan, is flagged needs_review; held-back rows are quarantined and never shown in the app.`,
+    learned_from: "Scout design" },
+
+  // ── Finding the times on a site (plain-HTTP Scout) ──────────────────────────────────────────────────────────
+  { id: "same-site-links", kind: "collect", where: "collect.ts collect()",
+    rule: `Follow "prayer times" links on the same site; www / non-www and http / https are the same site.`,
+    learned_from: "Peel sites linking between www and bare domains" },
+  { id: "widget-iframes", kind: "collect", where: "collect.ts iframes()",
+    rule: `Open embedded timetable widgets (themasjidapp, Masjidal, Mawaqit, MasjidBox, Google Apps Script, anything named prayer/salah/iqama/timetable).`,
+    learned_from: "Peel sites embedding third-party prayer widgets" },
+  { id: "mawaqit-calendar", kind: "collect", where: "collect.ts mawaqitText()",
+    rule: `Mawaqit pages keep the whole year's iqama calendar in a confData script variable: read it for this month and next.`,
+    learned_from: "Anatolia Islamic Centre" },
+  { id: "apps-script-pages", kind: "collect", where: "collect.ts pageText()",
+    rule: `Google Apps Script web apps hide the real page in a JSON-escaped userHtml string: decode it before reading.`,
+    learned_from: "Peel sites publishing their timetable as an Apps Script page" },
+  { id: "script-feeds", kind: "collect", where: "collect.ts feeds()",
+    rule: `Pages that load times by script: find the data feed (Firebase *.json, Apps Script /exec, */prayer*.json) in the HTML or in the site's own script bundles, and read it.`,
+    learned_from: "Al-Hikmah Centre (Next.js site loading prayer-time.json)" },
+  { id: "timetable-pdfs", kind: "collect", where: "collect.ts pdfLinks()/fetchPdf()",
+    rule: `Timetable PDFs linked from the site (calendar, schedule, timetable…) are sent to Claude as documents.`,
+    learned_from: "Islamic Forum of Canada (SALAH-TIMETABLE.pdf)" },
+
+  // ── Reading in a real browser (Browser Scout) ───────────────────────────────────────────────────────────────
+  { id: "real-browser", kind: "browser", where: "scout.mjs capture()",
+    rule: `Sites that refuse plain readers or draw their times with scripts are read in a real browser after the page's scripts run, including every embedded frame.`,
+    learned_from: "DawaNet (HTTP 406 to the plain Scout), script-drawn widgets" },
+  { id: "prayer-blocks", kind: "browser", where: "scout.mjs MARK_BLOCKS",
+    rule: `Photograph the smallest on-screen blocks that list at least three prayer names with times, widened to keep column headers (Adhan / Iqamah) in the picture.`,
+    learned_from: "Masjid-E-Aqsa, BICC (headers needed to tell adhan from iqama)" },
+  { id: "whole-widget-screenshot", kind: "browser", where: "scout.mjs grab()",
+    rule: `When a block inside an embedded widget cannot be cropped (the widget blocks scrolling), photograph the whole widget instead.`,
+    learned_from: "Rowdah Centre (cross-origin prayertimedisplay.com widget)" },
+  { id: "open-pop-ups", kind: "browser", where: "scout.mjs MARK_OPENERS",
+    rule: `Click buttons, tabs and accordions that open prayer times ("See prayer times", "Salah timings") and read what appears; if a click navigates away, go back.`,
+    learned_from: "DawaNet ('See prayer times' pop-up)" },
+  { id: "page-code-schedules", kind: "browser", where: "scout.mjs readPage()",
+    rule: `Schedules kept in the page's own code (inline scripts naming Fajr and Isha) are passed along, marked: use only where their structure is explicit — what the page displays wins.`,
+    learned_from: "DawaNet (WordPress plugin settings holding the month's periods)" },
+  { id: "timetable-images", kind: "browser", where: "scout.mjs readPage()",
+    rule: `Large images whose name, alt or title says timetable / prayer / Ramadan / monthly are downloaded and read.`,
+    learned_from: "Sites posting their monthly timetable as an image" },
+  { id: "bot-check", kind: "browser", where: "scout.mjs botCheck() + index.ts mode 'blocked'",
+    rule: `A site that refuses automated readers — a bot-check page ("Just a moment…", "Verify you are human", "Checking the site connection security", any captcha) or a short refusal (HTTP 401/403/406/429, "Forbidden", "Access denied") — is not read and never forced: the Scout records "BOT CHECK", skips the site for 7 days, and the mosque is listed as needing a screenshot or the mosque's own feed/allow-listing.`,
+    learned_from: "BARIC and ISNA Canada (Cloudflare), Jame Masjid Mississauga (SiteGround captcha), Mississauga Muslim Community (HTTP 403)" },
+  { id: "daily-targets", kind: "browser", where: "index.ts browserTargets()",
+    rule: `Every active mosque with a website — new ones included — is a browser target whenever today has fewer than five prayers covered, and is re-read at least every 3 days. Sites that only publish today are therefore read every day.`,
+    learned_from: "Al-Hikmah, Rowdah, DawaNet, Rahmat (single-day widgets)" },
+
+  // ── Keeping the rules honest ────────────────────────────────────────────────────────────────────────────────
+  { id: "screenshot-is-answer-key", kind: "process",
+    rule: `Every screenshot of a mosque's own site becomes an answer key (ground truth). A wrong read is fixed by a general rule in this file — never by hand-entering that mosque's times.`,
+    learned_from: "Wael's instruction (3 Nov 2026)" },
+  { id: "key-vs-site", kind: "process",
+    rule: `When a key and the live site disagree, check the site's primary data first (feed, widget, image). If the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug.`,
+    learned_from: "Al-Hikmah Centre (Asr changed after the screenshot)" },
+  { id: "daily-keys-expire", kind: "process",
+    rule: `A key from a single-day widget covers that day only; an expired key is reported as a warning (send a fresh screenshot), not a failure.`,
+    learned_from: "Rowdah Centre" },
+  { id: "screenshot-inbox", kind: "process", where: "scout.mjs --image",
+    rule: `For sites no automated reader may open, a community member's screenshot of the mosque's own site is read with the same rules (stored as source kind "image"). Screenshot fixtures are re-read on every check without writing to the database (dry run).`,
+    learned_from: "BARIC, ISNA Canada" },
+];
+
+/** The reading rules, as the bullet list Claude receives. */
+export const READ_RULES = RULES.filter((r) => r.kind === "read").map((r) => `- ${r.rule}`).join("\n");
