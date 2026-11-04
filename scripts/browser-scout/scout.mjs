@@ -104,11 +104,19 @@ async function grab(page, out, label) {
     const tag = `p${++pass}`;
     let n = 0;
     try { n = await f.evaluate(MARK_BLOCKS, tag); } catch { continue; }
+    let failed = false;
     for (let i = 0; i < n && out.images.length < 3; i++) {
       try {
         const buf = await f.locator(`[data-adrik-block="${tag}-${i}"]`).first().screenshot({ type: "jpeg", quality: 85, timeout: 8_000 });
         out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: `prayer block (${label}) on ${f.url()}` });
-      } catch { /* off-screen or detached */ }
+      } catch { failed = true; }
+    }
+    // Some widgets cannot be cropped from inside (they block scrolling): photograph the whole widget instead.
+    if (failed && f !== page.mainFrame() && out.images.length < 3) {
+      try {
+        const buf = await (await f.frameElement()).screenshot({ type: "jpeg", quality: 85, timeout: 10_000 });
+        out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: `whole widget ${f.url()}` });
+      } catch { /* skip */ }
     }
   }
 }
