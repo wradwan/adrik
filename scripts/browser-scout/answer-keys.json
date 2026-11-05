@@ -421,6 +421,72 @@
       "rules": [
         "bot-check"
       ]
+    },
+    {
+      "name": "Mississauga Muslim Community Center (MMCC)",
+      "mosque_id": "8a275ac1-67be-4707-abc2-06569d6ac3a8",
+      "url": "https://mmcc-canada.org/",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:45",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "Wael's screenshot of mmcc-canada.org, 4 Nov (daily table: Adhan / Iqamah columns, Sunrise row, Friday Prayer row with three times). Daily table, so the live key covers this day only.",
+      "rules": [
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "jumuah-start-iqamah"
+      ]
+    },
+    {
+      "name": "Mississauga Muslim Community Center (MMCC)",
+      "mosque_id": "8a275ac1-67be-4707-abc2-06569d6ac3a8",
+      "url": "https://mmcc-canada.org/",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:45",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "image": "fixtures/mmcc-2026-11-04.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of mmcc-canada.org, 4 Nov (browser bar cropped off)",
+      "rules": [
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "jumuah-start-iqamah",
+        "shown-date",
+        "formats"
+      ]
     }
   ]
 }
