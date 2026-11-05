@@ -2,6 +2,7 @@
 // Handles the places iqama times hide besides plain HTML:
 //   - linked "prayer times" pages (www / non-www, http / https treated as the same site)
 //   - embedded timetable widgets (iframes): themasjidapp, Masjidal, Mawaqit, Google Apps Script, ...
+//   - "Prayer Times" links to a provider's page on another site (prayertimedisplay.com, Mawaqit, Masjidal, ...)
 //   - Mawaqit: the yearly iqama calendar sits in a `confData` script variable
 //   - Google Apps Script web apps: the real page is a JSON-escaped string (`userHtml`)
 //   - data feeds the page loads by script (Firebase *.json, Apps Script /exec, */prayer*.json),
@@ -11,6 +12,9 @@ export const UA = "AdrikScout/0.1 (+iqama schedule reader)";
 export const LINK_RE = /salah|salat|prayer|namaz|iqama|iqamah|timetable|times|اوقات|الصلاة/i;
 // Iframes worth opening.
 const WIDGET_RE = /themasjidapp|masjidbox|mawaqit|masjidal|masjidiapp|connect-?mazjid|madina\.?apps|script\.google\.com\/macros|iqamah|prayer|salah|salat|iqama|timetable/i;
+// Prayer-time providers that host a mosque's times on their own site: "Prayer Times" links to them are followed
+// like pages of the mosque's site (rule widget-links).
+export const WIDGET_HOSTS = /(^|\.)(prayertimedisplay\.com|mawaqit\.net|masjidal\.com|athanplus\.com|themasjidapp\.(org|net|com)|masjidbox\.com|mazjid\.com|madinaapps\.com|masjidiapp\.com|masjidplus\.com)$/i;
 // Data feeds a page fetches by script.
 const FEED_RE = /https?:\/\/[^"'`\s<>()\\]*?(?:firebaseio\.com\/[^"'`\s<>()\\]*?\.json|script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec|\/[^"'`\s<>()\\]*(?:prayer|iqama|iqamah|salah|salat|namaz|jamaat)[^"'`\s<>()\\]*\.json)/gi;
 const FEED_SKIP = /sunrise-sunset|maps\.googleapis|googletagmanager|google-analytics/i;
@@ -132,17 +136,21 @@ export async function collect(site: string): Promise<{ text: string; urls: strin
   }
   const home = await fetchText(site);
   const base = new URL(site);
-  const links = new Set<string>();
+  const links = new Set<string>(), widgetLinks = new Set<string>();
   for (const m of home.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const href = m[1], label = htmlToText(m[2]);
     if (LINK_RE.test(label) || LINK_RE.test(href)) {
-      try { const u = new URL(href, base); u.hash = ""; if (bareHost(u.host) === bareHost(base.host) && u.toString() !== site && u.toString() !== base.toString()) links.add(u.toString()); } catch { /* skip */ }
+      try {
+        const u = new URL(href, base); u.hash = "";
+        if (bareHost(u.host) === bareHost(base.host) && u.toString() !== site && u.toString() !== base.toString()) links.add(u.toString());
+        else if (WIDGET_HOSTS.test(u.host)) widgetLinks.add(u.toString());   // e.g. "Prayer Times" → prayertimedisplay.com
+      } catch { /* skip */ }
     }
   }
   const pages = [...links].slice(0, 3);
   const parts = [pageText(site, home)];
   const htmls = [home];
-  const extra = new Set<string>(iframes(home, base));
+  const extra = new Set<string>([...widgetLinks, ...iframes(home, base)]);
   for (const u of pages) {
     try { const h = await fetchText(u); htmls.push(h); parts.push(`\n\n=== ${u} ===\n` + pageText(u, h)); iframes(h, new URL(u)).forEach((w) => extra.add(w)); } catch { /* skip */ }
   }

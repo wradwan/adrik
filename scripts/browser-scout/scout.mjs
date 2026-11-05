@@ -33,6 +33,8 @@ const LINK_RE = /prayer|salah|salat|namaz|iqama|iqamah|jamaat|timing|timetable|Ø
 const BOT_TITLE = /just a moment|attention required|verify you are human|checking your browser|security check|are you a robot|access denied/i;
 const BOT_TEXT = /verify you are human|checking (if )?the site connection( is)? secur|checking your browser|enable javascript and cookies to continue|requires cookies to be enabled|performing security verification|needs to review the security of your connection|you have been blocked|access denied|forbidden|don't have permission to access/i;
 const BOT_URL = /\/\.well-known\/sgcaptcha|\/cdn-cgi\/challenge-platform|[?&]__cf_chl|captcha/i;
+// Prayer-time providers hosting a mosque's times on their own site (same list as collect.ts WIDGET_HOSTS).
+const WIDGET_HOSTS = /(^|\.)(prayertimedisplay\.com|mawaqit\.net|masjidal\.com|athanplus\.com|themasjidapp\.(org|net|com)|masjidbox\.com|mazjid\.com|madinaapps\.com|masjidiapp\.com|masjidplus\.com)$/i;
 const IMG_RE = /prayer|salah|salat|namaz|timetable|time-?table|iqama|jamaat|schedule|calendar|ramadan|timing|monthly/i;
 
 const args = process.argv.slice(2);
@@ -194,7 +196,8 @@ async function capture(browser, site) {
     try { links = await readPage(page, site, out); } catch (e) { if (e instanceof BotCheck) return { blocked: e.message }; throw e; }
     const base = new URL(page.url());
     const next = [...new Map(links.filter((l) => {
-      try { const u = new URL(l.href); return bare(u.host) === bare(base.host) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
+      // Same-site prayer-times pages, plus "Prayer Times" links to a provider's page on another site (rule widget-links).
+      try { const u = new URL(l.href); return (bare(u.host) === bare(base.host) || WIDGET_HOSTS.test(u.host)) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname) || WIDGET_HOSTS.test(u.host)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
     }).map((l) => [l.href.split("#")[0], l])).values()].slice(0, 2);
     for (const l of next) { try { out.pages.push(l.href); await readPage(page, l.href.split("#")[0], out); } catch { /* skip (a bot check on a sub-page just ends that page) */ } }
     if (!out.images.length) {   // nothing recognisable: one screenshot of the top of the home page

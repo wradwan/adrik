@@ -504,6 +504,114 @@
         "not-a-prayer",
         "adhan-check"
       ]
+    },
+    {
+      "name": "ICCO MAC Masjid",
+      "mosque_id": "911b3ffa-7815-44df-8ef7-17429b188366",
+      "url": "https://centres.macnet.ca/icco/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:14",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "11:00"
+        },
+        {
+          "khutbah": "12:15"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "Wael's screenshot of centres.macnet.ca/icco (icco.ca redirects there), 4 Nov: big iqama + small ATHAN; block 'Friday Prayers, November 6' (winter times). Daily page, so the live key covers this day only.",
+      "rules": [
+        "athan-beside-iqama",
+        "dated-friday-block",
+        "jumuah-start-iqamah"
+      ]
+    },
+    {
+      "name": "ICCO MAC Masjid",
+      "mosque_id": "911b3ffa-7815-44df-8ef7-17429b188366",
+      "url": "https://centres.macnet.ca/icco/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:14",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "11:00"
+        },
+        {
+          "khutbah": "12:15"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "image": "fixtures/icco-2026-11-04.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of centres.macnet.ca/icco, 4 Nov",
+      "rules": [
+        "athan-beside-iqama",
+        "dated-friday-block",
+        "jumuah-start-iqamah",
+        "shown-date"
+      ]
+    },
+    {
+      "name": "Masjid Al-Salam",
+      "mosque_id": "497505c3-4c4c-4b03-a6c1-7e73872afc67",
+      "url": "http://www.mpicbrampton.com/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "12:45",
+        "asr": "15:00",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:10",
+          "salah": "12:40"
+        },
+        {
+          "khutbah": "13:10",
+          "salah": "13:40"
+        },
+        {
+          "khutbah": "14:00",
+          "salah": "14:25"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "The site's 'Prayer Times' button opens https://www.prayertimedisplay.com/ptdp/ldt.php?masjid=MAS001 (link from Wael, 4 Nov); widget shows Salah start + Iqamah, Sunrise/Ishraq/Chast/Zawal rows, Maghrib 'Tomorrow' line, three Jummah slots with Khutbah + Iqamah. Daily widget: live key covers this day only.",
+      "rules": [
+        "widget-links",
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "tomorrow-line",
+        "jumuah-start-iqamah",
+        "real-browser"
+      ]
     }
   ]
 }
