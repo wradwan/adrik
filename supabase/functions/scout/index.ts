@@ -23,6 +23,7 @@
 // v21: Maghrib check — a fixed Maghrib time before sunset or more than 45 min after it is dropped (rule maghrib-near-sunset).
 // v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
 // v23: Jumu'ah-only places count as covered for the daily prayers: browser and computer readers re-read them every 3 days.
+// v24: Jumu'ah check (one start time shared by several slots is not a khutbah); a re-read replaces the month's Jumu'ah slots.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -232,6 +233,21 @@ function checkMaghrib(m: Out, out: Out): void {
   if (bad.length) out.notes = `${out.notes ?? ""} [Maghrib check: dropped ${bad.length} Maghrib time(s) not within sunset..sunset+45 min (${bad.slice(0, 3).join("; ")}${bad.length > 3 ? "; …" : ""}).]`.trim();
 }
 
+// Rule jumuah-shared-start: two Jumu'ah slots cannot share one khutbah time. A khutbah time repeated across slots whose
+// salah times differ is the day's prayer-start (Begins / adhan) time, not a khutbah: each slot keeps its salah time as
+// its only time (khutbah = salah, as in rule jumuah-start-iqamah).
+function checkJumuah(out: Out): void {
+  const js: Out[] = out.jumuah ?? [], fixed: string[] = [];
+  for (const j of js) {
+    const same = js.filter((x) => x.khutbah_time === j.khutbah_time);
+    if (same.length > 1 && new Set(same.map((x) => x.salah_time)).size > 1 && j.salah_time && j.salah_time !== j.khutbah_time) {
+      fixed.push(`${j.khutbah_time}→${j.salah_time}`); j.shared = true;
+    }
+  }
+  for (const j of js) if (j.shared) { j.khutbah_time = j.salah_time; j.salah_offset_min = 0; delete j.shared; }
+  if (fixed.length) out.notes = `${out.notes ?? ""} [Jumu'ah check: one start time shared by several slots is not a khutbah; each slot keeps its salah time (${fixed.join(", ")}).]`.trim();
+}
+
 // Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
 function classify(m: Out, out: Out) {
   const av = adhanVerdict(m, out);
@@ -271,7 +287,11 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
   }
 
   const jum = (out.jumuah ?? []).map((j: Out) => ({ mosque_id: m.id, slot: j.slot, khutbah_time: j.khutbah_time, salah_time: j.salah_time, salah_offset_min: j.salah_offset_min ?? 30, language: j.language, valid_from: today.slice(0, 8) + "01", source_id: sid }));
-  if (jum.length) await db.from("jumuah_slots").upsert(jum, { onConflict: "mosque_id,slot,valid_from" });
+  if (jum.length) {
+    await db.from("jumuah_slots").upsert(jum, { onConflict: "mosque_id,slot,valid_from" });
+    // Rule rule-replacement: a re-read replaces the month's Jumu'ah slots — slots the page no longer lists are removed.
+    await db.from("jumuah_slots").delete().eq("mosque_id", m.id).eq("valid_from", jum[0].valid_from).gt("slot", Math.max(...jum.map((j: Out) => Number(j.slot) || 0)));
+  }
 
   const spec = (out.special ?? []).map((s: Out) => ({ mosque_id: m.id, date: s.date, name: s.name, start_time: s.start_time, source_id: sid }));
   if (spec.length) await db.from("special_jamaah").insert(spec);
@@ -361,6 +381,7 @@ Deno.serve(async (req) => {
         : text;
       const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
       checkMaghrib(m, out);
+      checkJumuah(out);
       if (body.dry) {   // test fixture: read with every rule, write nothing
         const { av, isAdhan } = classify(m, out);
         return Response.json({ status: "dry", confidence: out.confidence, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
@@ -377,6 +398,7 @@ Deno.serve(async (req) => {
     if (!body.force && last?.raw_hash === hash) return Response.json({ status: "unchanged" });
     const out = await extract(text, label(m), today, { images: [], docs }, false);
     checkMaghrib(m, out);
+    checkJumuah(out);
     return Response.json(await store(db, m, out, hash, urls[0], "website"));
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });

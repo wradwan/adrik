@@ -741,6 +741,50 @@
         "shown-date",
         "jumuah-start-iqamah"
       ]
+    },
+    {
+      "name": "Malton Mosque",
+      "mosque_id": "a2d49101-ee40-4d59-8c30-f68a58870e13",
+      "url": "http://maltonmasjid.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-30",
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:15"
+        }
+      ],
+      "from": "Malton Masjid's ad-din widget as rendered 4 Nov: 'Salah | Begins | Iqamah' table; Jumah rows Begins 12:02 PM (Dhuhr start) with Iqamah 1:00 PM and 2:15 PM. Jumu'ah only (the daily rows change daily).",
+      "rules": [
+        "jumuah-start-iqamah",
+        "jumuah-shared-start",
+        "iqama-not-adhan"
+      ]
+    },
+    {
+      "name": "Muslim Neighbour Nexus (MNN)",
+      "mosque_id": "8ddeffe6-0b9b-4b4f-9ad9-d95207e15a86",
+      "url": "http://mnnexus.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-30",
+      "jumuah": [
+        {
+          "khutbah": "12:00"
+        },
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:00"
+        }
+      ],
+      "from": "MNN's iqamah widget (iqamah.mnnexus.ca), 4 Nov: 'MNN Masjid: 12:00PM, 1:00PM, 2:00PM'; 'Churchill Meadows CC: 12:30PM, 1:15PM' is another venue and must not be listed for the masjid.",
+      "rules": [
+        "jumuah-other-venue",
+        "jumuah-start-iqamah"
+      ]
     }
   ]
 }
