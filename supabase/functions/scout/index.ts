@@ -20,6 +20,7 @@
 // v20: computer reader — sites that refuse automated readers are read in a person's own Chrome (source "pc-chrome",
 //   stored as kind browser with notes "PC CHROME: …"); targets also lists them ("computer"); a site that refuses a
 //   normal browser too is recorded as SITE CLOSED.
+// v21: Maghrib check — a fixed Maghrib time before sunset or more than 45 min after it is dropped (rule maghrib-near-sunset).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -203,6 +204,32 @@ function adhanVerdict(m: Out, out: Out): { verdict: "adhan" | "iqama" | "unclear
   return { verdict, close, early, total };
 }
 
+// Rule maghrib-near-sunset: a Maghrib jama'ah starts shortly after sunset. A fixed Maghrib time before sunset or more
+// than 45 minutes after it is wrong for that date (typically a time not updated after a clock change): it is dropped
+// before storing, and the read is noted. Sunset/offset rules are unaffected.
+function sunsetMin(m: Out, date: string): number {
+  const [lng, lat] = lngLat(m);
+  const t = new adhan.PrayerTimes(new adhan.Coordinates(lat, lng), new Date(date + "T12:00:00Z"), adhan.CalculationMethod.NorthAmerica());
+  const [h, mi] = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz ?? "America/Toronto", hour12: false, hour: "2-digit", minute: "2-digit" }).format(t.maghrib).split(":").map(Number);
+  return (h % 24) * 60 + mi;
+}
+function checkMaghrib(m: Out, out: Out): void {
+  const bad: string[] = [];
+  const off = (date: string, t: string) => { const [h, mi] = String(t).split(":").map(Number); return h * 60 + mi - sunsetMin(m, date); };
+  for (const mo of out.months ?? []) for (const r of mo.rows ?? []) {
+    if (!r.maghrib || !/^\d{4}-\d{2}-\d{2}$/.test(r.date) || !/^\d{1,2}:\d{2}/.test(r.maghrib)) continue;
+    const d = off(r.date, r.maghrib);
+    if (d < -2 || d > 45) { bad.push(`${r.date} ${r.maghrib}`); r.maghrib = null; }
+  }
+  out.rules = (out.rules ?? []).filter((u: Out) => {
+    if (u.prayer !== "maghrib" || u.kind !== "fixed" || !u.fixed_time || !/^\d{4}-\d{2}-\d{2}$/.test(String(u.valid_from))) return true;
+    const d = off(u.valid_from, u.fixed_time);
+    if (d < -2 || d > 45) { bad.push(`rule from ${u.valid_from} ${u.fixed_time}`); return false; }
+    return true;
+  });
+  if (bad.length) out.notes = `${out.notes ?? ""} [Maghrib check: dropped ${bad.length} Maghrib time(s) not within sunset..sunset+45 min (${bad.slice(0, 3).join("; ")}${bad.length > 3 ? "; …" : ""}).]`.trim();
+}
+
 // Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
 function classify(m: Out, out: Out) {
   const av = adhanVerdict(m, out);
@@ -330,6 +357,7 @@ Deno.serve(async (req) => {
         : pc ? `This site refuses automated readers, so it was read in a person's own Chrome on their computer. Below is the rendered text of the prayer-time block(s) the page showed (after clicking any "prayer times" opener), then any Jumu'ah lines on the page.\n\n${text}`
         : text;
       const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
+      checkMaghrib(m, out);
       if (body.dry) {   // test fixture: read with every rule, write nothing
         const { av, isAdhan } = classify(m, out);
         return Response.json({ status: "dry", confidence: out.confidence, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
@@ -345,6 +373,7 @@ Deno.serve(async (req) => {
     const { data: last } = await db.from("sources").select("raw_hash").eq("mosque_id", m.id).eq("kind", "website").order("fetched_at", { ascending: false }).limit(1).maybeSingle();
     if (!body.force && last?.raw_hash === hash) return Response.json({ status: "unchanged" });
     const out = await extract(text, label(m), today, { images: [], docs }, false);
+    checkMaghrib(m, out);
     return Response.json(await store(db, m, out, hash, urls[0], "website"));
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
