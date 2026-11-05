@@ -314,7 +314,7 @@ try {
         if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); continue; }
         if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); continue; }
         verdict(line, key, key.expect === "jumuah only" ? compare(key, res.resolved_today).concat(res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["daily times were stored for a Jumu'ah-only place"] : [])
-          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
+          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : []).concat(compare({ jumuah: key.jumuah }, res.resolved_today))
           : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
@@ -331,7 +331,7 @@ try {
             docs: [{ media_type: "application/pdf", data: (await readFile(new URL(key.doc, keyFile))).toString("base64") }] });
       const heldBack = key.expect === "held back";
       verdict(`• ${key.name} [${key.image ? "screenshot" : "PDF"} ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s${res.stored_as !== "iqama" ? ` — ${res.stored_as}` : ""}`,
-        key, heldBack ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["start-time timetable was read as iqama"] : [])
+        key, heldBack ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["start-time timetable was read as iqama"] : []).concat(compare({ jumuah: key.jumuah }, res.resolved_today))
           : compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
     } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [fixture]: ERROR ${String(e).slice(0, 200)}`); }
   }

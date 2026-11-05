@@ -21,6 +21,7 @@
 //   stored as kind browser with notes "PC CHROME: …"); targets also lists them ("computer"); a site that refuses a
 //   normal browser too is recorded as SITE CLOSED.
 // v21: Maghrib check — a fixed Maghrib time before sunset or more than 45 min after it is dropped (rule maghrib-near-sunset).
+// v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
