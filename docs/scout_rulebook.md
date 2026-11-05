@@ -5,7 +5,7 @@ Generated from `supabase/functions/scout/rules.ts` (the single source of truth) 
 
 **Adding a lesson.** When a site is read wrong: (1) write the general rule in `rules.ts` — never hand-enter that mosque's times; (2) add an answer key (or a screenshot fixture) that would have caught it and list the rule id in its `rules`; (3) push. Every push re-runs all answer keys and prints each rule as passing (✓), failing (✗) or untested (·).
 
-**63 rules**: 27 reading a schedule · 7 checks in code · 8 finding the times (plain reader) · 10 reading in a real browser · 11 keeping the rules honest.
+**65 rules**: 27 reading a schedule · 7 checks in code · 8 finding the times (plain reader) · 12 reading in a real browser · 11 keeping the rules honest.
 
 ## Reading a schedule
 
@@ -77,6 +77,8 @@ How the Browser Scout (GitHub Actions, Chromium) reads sites the plain reader ca
 | Rule | What it says | Learned from | Tested by |
 |---|---|---|---|
 | `real-browser`<br><sub>scout.mjs capture()</sub> | Sites that refuse plain readers or draw their times with scripts are read in a real browser after the page's scripts run, including every embedded frame. | DawaNet (HTTP 406 to the plain Scout), script-drawn widgets | Masjid-E-Aqsa, Ar-Rashaad Centre, DawaNet Community Centre, Masjid Al-Salam |
+| `shadow-widgets`<br><sub>scout.mjs PAGE_TEXT/MARK_BLOCKS + pc-reader.js</sub> | Web-component widgets (Masjidal's <masjidal-widget>, ...) keep their text inside a shadow root, which a page's plain text leaves out: read every shadow root's text too, and photograph the widget's host element when it lists the prayers. | Jamia Islamia Canada (Masjidal widget showed full iqama times in Chrome; both readers saw an empty page — Wael's screenshot, 5 Nov 2026) | — |
+| `flutter-apps`<br><sub>scout.mjs PAGE_TEXT + pc-reader.js</sub> | A Flutter web app (often a mosque's own app embedded in its site) draws its text on a canvas. Switch on its accessibility tree (the hidden "enable accessibility" placeholder) and read the labels it exposes; that is the only interaction made with the app. | Sayeda Khadija Centre (Daily Salat Timings is an embedded skc-mobile-app.web.app Flutter widget — Wael's screenshot, 5 Nov 2026) | — |
 | `prayer-blocks`<br><sub>scout.mjs MARK_BLOCKS</sub> | Photograph the smallest on-screen blocks that list at least three prayer names with times, widened to keep column headers (Adhan / Iqamah) in the picture. | Masjid-E-Aqsa, BICC (headers needed to tell adhan from iqama) | Masjid-E-Aqsa, Bramalea Islamic Cultural Centre (BICC) |
 | `whole-widget-screenshot`<br><sub>scout.mjs grab()</sub> | When a block inside an embedded widget cannot be cropped (the widget blocks scrolling), photograph the whole widget instead. | Rowdah Centre (cross-origin prayertimedisplay.com widget) | Rowdah Centre |
 | `open-pop-ups`<br><sub>scout.mjs MARK_OPENERS</sub> | Click buttons, tabs and accordions that open prayer times ("See prayer times", "Salah timings") and read what appears; if a click navigates away, go back. | DawaNet ('See prayer times' pop-up) | DawaNet Community Centre |
