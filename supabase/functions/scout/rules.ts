@@ -112,7 +112,7 @@ export const RULES: Rule[] = [
     rule: `An iqama can never come before the adhan: any time more than 5 min before the earliest possible adhan (Shafi) marks the set as adhan/calculated times and holds it back.`,
     learned_from: "Bab ul Ilm (Jafari Fajr before the ISNA adhan), other calculated-time pages" },
   { id: "maghrib-near-sunset", kind: "check", where: "index.ts checkMaghrib()",
-    rule: `A Maghrib jama'ah starts shortly after sunset. A fixed Maghrib time before sunset or more than 45 minutes after it is wrong for that date — typically a time the mosque did not update after a clock change — and is dropped instead of stored (sunset and sunset+N rules are unaffected).`,
+    rule: `A Maghrib jama'ah starts shortly after sunset. A fixed Maghrib time before sunset or more than 45 minutes after it is wrong for that date — typically a time the mosque did not update after a clock change — and is dropped instead of stored (sunset and sunset+N rules are unaffected); the app then uses sunset (rule maghrib-at-sunset).`,
     learned_from: "Tawheed / Dar Al-Tawheed (themasjidapp widget still showing the summer Maghrib 6:15 pm after the November clock change; sunset 5:06)" },
   { id: "jumuah-shared-start", kind: "check", where: "index.ts checkJumuah()",
     rule: `Two Jumu'ah slots cannot share one khutbah time: a khutbah time repeated across slots whose salah times differ is the day's prayer-start time, not a khutbah, so each slot keeps its salah time as its only time.`,
@@ -187,8 +187,11 @@ export const RULES: Rule[] = [
 
   // ── Keeping the rules honest ────────────────────────────────────────────────────────────────────────────────
   { id: "jamaah-only", kind: "process", where: "app (guide) + index.ts quarantine",
-    rule: `The app shows only jama'ah (iqama) times a mosque publishes. Prayer start times are never shown or counted as an iqama, even when a mosque publishes them as its "daily prayer times"; such a mosque is suggested only for the prayers it gives a jama'ah time for.`,
+    rule: `The app shows only jama'ah (iqama) times a mosque publishes. Prayer start times are never shown or counted as an iqama, even when a mosque publishes them as its "daily prayer times"; such a mosque is suggested only for the prayers it gives a jama'ah time for. The one exception is Maghrib, which defaults to sunset (rule maghrib-at-sunset).`,
     learned_from: "Islamic Forum of Canada (its Faisaliyyah Hanafi start-time PDF vs. its published Dhuhr iqama 1:30) — Wael's decision, 4 Nov 2026" },
+  { id: "maghrib-at-sunset", kind: "process", where: "guide/index.ts evaluate()",
+    rule: `A mosque that publishes no Maghrib time for the day — or whose Maghrib was dropped as wrong (rule maghrib-near-sunset) — is taken to pray Maghrib at sunset at its own location, for communities whose Maghrib jama'ah starts at sunset (Sunni, Ahmadiyya; not Jumu'ah-only places). Sunset is the earliest a Maghrib jama'ah can start, so the app never says a jama'ah is still ahead when it has begun; the app says the time is sunset, not a published one.`,
+    learned_from: "Wael's instruction, 4 Nov 2026 (Dar Al-Tawheed's stale Maghrib; mosques that publish no times)" },
   { id: "website-check", kind: "process", where: "missing list (mosques never read, or whose site does not load)",
     rule: `A mosque that has never been read, or whose website does not load or is only an organization's national homepage, gets its website re-checked by name: websites on file can be wrong, outdated, or point at the parent organization. The corrected site then goes through every rule as usual.`,
     learned_from: "Nasfat Peel Region (nasfatpeelregion.com on file does not exist; the real site is .ca), MAC Speakman (MAC's national homepage on file)" },
