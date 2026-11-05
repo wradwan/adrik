@@ -173,15 +173,20 @@ async function readPage(page, url, out) {
     } catch { /* not clickable */ }
   }
   // Timetable images posted on the page.
-  const imgs = await page.$$eval("img", (els) => els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight })));
+  // Rule heading-images: an image under a prayer-times heading counts even if its name and alt text say nothing.
+  const imgs = await page.$$eval("img", (els) => {
+    const heads = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+    const headBefore = (e) => { let last = ""; for (const h of heads) { if (h.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) last = h.innerText || ""; else break; } return last.trim().slice(0, 80); };
+    return els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight, heading: headBefore(e) }));
+  });
   for (const im of imgs) {
     if (out.images.length >= 4) break;
-    if (im.w < 400 || im.h < 300 || !IMG_RE.test(`${im.src} ${im.alt} ${im.title}`)) continue;
+    if (im.w < 400 || im.h < 300 || !(IMG_RE.test(`${im.src} ${im.alt} ${im.title}`) || /prayer|salah|salat|namaz|iqama|jamaat|timing|timetable|schedule/i.test(im.heading))) continue;
     try {
       const r = await page.request.get(im.src, { timeout: 15_000 });
       const type = (r.headers()["content-type"] ?? "").split(";")[0];
       const body = await r.body();
-      if (/^image\/(png|jpeg|webp|gif)$/.test(type) && body.length < 3_500_000) out.images.push({ media_type: type, data: body.toString("base64"), why: `timetable image ${im.src}` });
+      if (/^image\/(png|jpeg|webp|gif)$/.test(type) && body.length < 3_500_000) out.images.push({ media_type: type, data: body.toString("base64"), why: `timetable image ${im.src}${im.heading ? ` under heading "${im.heading}"` : ""}` });
     } catch { /* skip */ }
   }
   return page.$$eval("a[href]", (as) => as.map((a) => ({ href: a.href, text: (a.innerText || a.title || "").trim().slice(0, 80) })));
@@ -308,7 +313,8 @@ try {
         const d = res.resolved_today?.date, key = keyFor(d);
         if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); continue; }
         if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); continue; }
-        verdict(line, key, key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
+        verdict(line, key, key.expect === "jumuah only" ? compare(key, res.resolved_today).concat(res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["daily times were stored for a Jumu'ah-only place"] : [])
+          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
           : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }

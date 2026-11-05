@@ -612,6 +612,93 @@
         "jumuah-start-iqamah",
         "real-browser"
       ]
+    },
+    {
+      "name": "Nasfat Peel Region",
+      "mosque_id": "ed1ad948-fc2e-4154-906f-cf6475728f2a",
+      "url": "https://nasfatpeelregion.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "from": "Wael's screenshot + monthly CSV, 4 Nov: 'Times shown are Adhan times for Brampton, ON'; 'open only on Sundays, 11am to 3pm… not open for daily congregational prayers'. The CSV is the same calculated Brampton adhan table. Must never be stored as iqama. (Website on file was nasfatpeelregion.com, a domain that does not exist; corrected to .ca.)",
+      "rules": [
+        "iqama-not-adhan",
+        "adhan-check",
+        "jamaah-only"
+      ]
+    },
+    {
+      "name": "Huttonville Jame Masjid",
+      "mosque_id": "f0832260-4eab-4a5a-a61b-97a43123e65d",
+      "url": "https://wphc.ca/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2026-11-10",
+      "from": "wphc.ca, 4 Nov (Wael's screenshot): winter table under the mislabelled heading 'Ramadan Prayer Timings', image with no alt text; Nov 1-10 row. Jumu'ah from the page's JUMA TIMING block.",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:15",
+        "asr": "15:45",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:00"
+        }
+      ],
+      "rules": [
+        "heading-images",
+        "dates-beat-titles",
+        "shared-site",
+        "date-range-block",
+        "rules-beat-tables"
+      ]
+    },
+    {
+      "name": "Huttonville Jame Masjid",
+      "mosque_id": "f0832260-4eab-4a5a-a61b-97a43123e65d",
+      "url": "https://wphc.ca/",
+      "image": "fixtures/huttonville-winter-table-2026.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of the wphc.ca table (heading 'RAMADAN PRAYER TIMINGS', rows Nov-Feb in 10-day periods)",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:15",
+        "asr": "15:45",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "rules": [
+        "dates-beat-titles",
+        "date-range-block",
+        "rules-beat-tables",
+        "shown-date"
+      ]
+    },
+    {
+      "name": "Ha-Meem Musalla (Peace and Harmony Centre)",
+      "mosque_id": "1dc0d3f6-0ef7-4365-8e4c-c2631e4de991",
+      "url": "https://wphc.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "jumuah only",
+      "from": "wphc.ca lists Ha Meem Musalla with Jumu'ah only (12:30, 1:20); the site runs Huttonville Mosque for daily prayers",
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:20"
+        }
+      ],
+      "rules": [
+        "shared-site"
+      ]
     }
   ]
 }
