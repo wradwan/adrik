@@ -22,6 +22,7 @@
 //   normal browser too is recorded as SITE CLOSED.
 // v21: Maghrib check — a fixed Maghrib time before sunset or more than 45 min after it is dropped (rule maghrib-near-sunset).
 // v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
+// v23: Jumu'ah-only places count as covered for the daily prayers: browser and computer readers re-read them every 3 days.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -293,7 +294,7 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
 async function browserTargets(db: SupabaseClient) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const [{ data: ms }, { data: rows }, { data: rules }, { data: srcs }] = await Promise.all([
-    db.from("mosques").select("id,name,website,community").eq("active", true).not("website", "is", null),
+    db.from("mosques").select("id,name,website,community,jumuah_only").eq("active", true).not("website", "is", null),
     db.from("iqama_rows").select("mosque_id,prayer").eq("date", today).eq("quarantined", false).limit(5000),
     db.from("iqama_rules").select("mosque_id,prayer").lte("valid_from", today).or(`valid_to.is.null,valid_to.gte.${today}`).limit(5000),
     db.from("sources").select("mosque_id,fetched_at,notes").eq("kind", "browser").order("fetched_at", { ascending: false }).limit(5000),
@@ -307,14 +308,15 @@ async function browserTargets(db: SupabaseClient) {
   }
   const stale = Date.now() - 3 * 864e5, botWait = Date.now() - 7 * 864e5;
   // Rule bot-check: a site that showed a bot check is not visited again for 7 days.
-  const all = (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
+  // Rule jumuah-only-places: a Jumu'ah-only place never misses a daily prayer, so only the 3-day refresh applies.
+  const all = (ms ?? []).map((m) => ({ ...m, covered: m.jumuah_only ? 5 : cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
   const blocked = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > botWait && m.covered < 5);
   const targets = all.filter((m) => !blocked.includes(m))
     .filter((m) => m.covered < 5 || (m.last_browser && Date.parse(m.last_browser) < stale))
     .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "browser refresh (every 3 days)" }))
     .sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || a.name.localeCompare(b.name));
   const computer = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > Date.now() - 8 * 864e5)
-    .filter((m) => { const pc = lastPc.get(m.id); return !(pc?.closed && Date.parse(pc.at) > botWait); });
+    .filter((m) => { const pc = lastPc.get(m.id); return !(pc?.closed && Date.parse(pc.at) > botWait) && !(m.jumuah_only && pc && Date.parse(pc.at) > stale); });
   return { targets, blocked: blocked.map((m) => ({ id: m.id, name: m.name, website: m.website, since: m.last_browser, reason: "bot check: read in a person's browser (computer reader) or from a screenshot" })),
     computer: computer.map((m) => ({ id: m.id, name: m.name, website: m.website, covered_today: m.covered, last_computer_read: lastPc.get(m.id)?.at ?? null })) };
 }

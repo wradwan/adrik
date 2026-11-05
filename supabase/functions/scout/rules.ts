@@ -176,8 +176,8 @@ export const RULES: Rule[] = [
     rule: `Sites that refuse automated readers but open normally in a person's own browser are read there every day by a scheduled task on Wael's computer: his Chrome opens the site, the same block-finder runs (clicking a "prayer times" opener when no table shows), and the text goes to the Scout with every rule, checksummed so it arrives exactly as the page showed it. A check page in his browser is never clicked through; the run reports it instead. If his browser is refused too (403/404/error), the site is recorded as SITE CLOSED and taken off the computer list for 7 days.`,
     learned_from: "BARIC and ISNA Canada (Cloudflare refuses automated readers, both open in Wael's Chrome); Mississauga Muslim Community (403 even in Wael's Chrome)" },
   { id: "daily-targets", kind: "browser", where: "index.ts browserTargets()",
-    rule: `Every active mosque with a website — new ones included — is a browser target whenever today has fewer than five prayers covered, and is re-read at least every 3 days. Sites that only publish today are therefore read every day.`,
-    learned_from: "Al-Hikmah, Rowdah, DawaNet, Rahmat (single-day widgets)" },
+    rule: `Every active mosque with a website — new ones included — is a browser target whenever today has fewer than five prayers covered, and is re-read at least every 3 days. Sites that only publish today are therefore read every day. A Jumu'ah-only place is never missing a daily prayer, so it is re-read every 3 days (by the computer reader too).`,
+    learned_from: "Al-Hikmah, Rowdah, DawaNet, Rahmat (single-day widgets); Nasfat Peel Region and Ha-Meem (Jumu'ah-only, were re-read every day)" },
 
   // ── Keeping the rules honest ────────────────────────────────────────────────────────────────────────────────
   { id: "jamaah-only", kind: "process", where: "app (guide) + index.ts quarantine",
@@ -199,8 +199,8 @@ export const RULES: Rule[] = [
     rule: `Every screenshot of a mosque's own site becomes an answer key (ground truth). A wrong read is fixed by a general rule in this file — never by hand-entering that mosque's times.`,
     learned_from: "Wael's instruction (3 Nov 2026)" },
   { id: "key-vs-site", kind: "process",
-    rule: `When a key and the live site disagree, check the site's primary data first (feed, widget, image). If the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug.`,
-    learned_from: "Al-Hikmah Centre (Asr changed after the screenshot)" },
+    rule: `When a key and the live site disagree, check the site's primary data first (feed, widget, image). If the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. A site that starts showing a bot check to the checking reader is a change on the site's side: the check reports it as a warning (its screenshot fixtures still run), not as a reading failure.`,
+    learned_from: "Al-Hikmah Centre (Asr changed after the screenshot); Nasfat Peel Region (nasfatpeelregion.ca began showing a Cloudflare check to GitHub's reader on 4 Nov)" },
   { id: "daily-keys-expire", kind: "process",
     rule: `A key from a single-day widget covers that day only; an expired key is reported as a warning (send a fresh screenshot), not a failure.`,
     learned_from: "Rowdah Centre" },

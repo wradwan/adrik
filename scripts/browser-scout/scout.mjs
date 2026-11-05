@@ -294,7 +294,8 @@ try {
         const line = `• ${t.name ?? t.website}: bot check — not read (${cap.blocked})`;
         // Refusals depend on the reader's network, so only the scheduled reader (GitHub Actions) records them.
         if (!flag("--dry") && SCHEDULED) await call({ mode: "blocked", mosque_id: t.id, url: t.website, reason: cap.blocked });
-        if (flag("--check")) { const key = keyFor(today); verdict(line, key, key.expect === "bot check" ? [] : ["site showed a bot check"]); }
+        // Rule key-vs-site: a bot check where the key expects times is a change on the site's side, reported as a warning.
+        if (flag("--check")) { const key = keyFor(today); verdict(line, key, [], key.expect === "bot check" ? undefined : "the site now shows a bot check to this reader — not a reading failure; the computer reader or a screenshot covers it (rule key-vs-site)"); }
         else console.log(line);
         continue;
       }
