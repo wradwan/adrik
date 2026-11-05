@@ -33,6 +33,8 @@ const LINK_RE = /prayer|salah|salat|namaz|iqama|iqamah|jamaat|timing|timetable|�
 const BOT_TITLE = /just a moment|attention required|verify you are human|checking your browser|security check|are you a robot|access denied/i;
 const BOT_TEXT = /verify you are human|checking (if )?the site connection( is)? secur|checking your browser|enable javascript and cookies to continue|requires cookies to be enabled|performing security verification|needs to review the security of your connection|you have been blocked|access denied|forbidden|don't have permission to access/i;
 const BOT_URL = /\/\.well-known\/sgcaptcha|\/cdn-cgi\/challenge-platform|[?&]__cf_chl|captcha/i;
+// Prayer-time providers hosting a mosque's times on their own site (same list as collect.ts WIDGET_HOSTS).
+const WIDGET_HOSTS = /(^|\.)(prayertimedisplay\.com|mawaqit\.net|masjidal\.com|athanplus\.com|themasjidapp\.(org|net|com)|masjidbox\.com|mazjid\.com|madinaapps\.com|masjidiapp\.com|masjidplus\.com)$/i;
 const IMG_RE = /prayer|salah|salat|namaz|timetable|time-?table|iqama|jamaat|schedule|calendar|ramadan|timing|monthly/i;
 
 const args = process.argv.slice(2);
@@ -171,15 +173,20 @@ async function readPage(page, url, out) {
     } catch { /* not clickable */ }
   }
   // Timetable images posted on the page.
-  const imgs = await page.$$eval("img", (els) => els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight })));
+  // Rule heading-images: an image under a prayer-times heading counts even if its name and alt text say nothing.
+  const imgs = await page.$$eval("img", (els) => {
+    const heads = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+    const headBefore = (e) => { let last = ""; for (const h of heads) { if (h.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) last = h.innerText || ""; else break; } return last.trim().slice(0, 80); };
+    return els.map((e) => ({ src: e.currentSrc || e.src, alt: e.alt || "", title: e.title || "", w: e.naturalWidth, h: e.naturalHeight, heading: headBefore(e) }));
+  });
   for (const im of imgs) {
     if (out.images.length >= 4) break;
-    if (im.w < 400 || im.h < 300 || !IMG_RE.test(`${im.src} ${im.alt} ${im.title}`)) continue;
+    if (im.w < 400 || im.h < 300 || !(IMG_RE.test(`${im.src} ${im.alt} ${im.title}`) || /prayer|salah|salat|namaz|iqama|jamaat|timing|timetable|schedule/i.test(im.heading))) continue;
     try {
       const r = await page.request.get(im.src, { timeout: 15_000 });
       const type = (r.headers()["content-type"] ?? "").split(";")[0];
       const body = await r.body();
-      if (/^image\/(png|jpeg|webp|gif)$/.test(type) && body.length < 3_500_000) out.images.push({ media_type: type, data: body.toString("base64"), why: `timetable image ${im.src}` });
+      if (/^image\/(png|jpeg|webp|gif)$/.test(type) && body.length < 3_500_000) out.images.push({ media_type: type, data: body.toString("base64"), why: `timetable image ${im.src}${im.heading ? ` under heading "${im.heading}"` : ""}` });
     } catch { /* skip */ }
   }
   return page.$$eval("a[href]", (as) => as.map((a) => ({ href: a.href, text: (a.innerText || a.title || "").trim().slice(0, 80) })));
@@ -191,10 +198,17 @@ async function capture(browser, site) {
   const out = { text: [], images: [], pages: [site] };
   try {
     let links;
-    try { links = await readPage(page, site, out); } catch (e) { if (e instanceof BotCheck) return { blocked: e.message }; throw e; }
+    try { links = await readPage(page, site, out); } catch (e) {
+      if (e instanceof BotCheck) return { blocked: e.message };
+      // Rule bot-check: a server that refuses or drops the reader's connection is refusing automated readers too.
+      const refused = String(e).match(/net::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|EMPTY_RESPONSE)/);
+      if (refused) return { blocked: `connection refused (${refused[0]}) at ${site}` };
+      throw e;
+    }
     const base = new URL(page.url());
     const next = [...new Map(links.filter((l) => {
-      try { const u = new URL(l.href); return bare(u.host) === bare(base.host) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
+      // Same-site prayer-times pages, plus "Prayer Times" links to a provider's page on another site (rule widget-links).
+      try { const u = new URL(l.href); return (bare(u.host) === bare(base.host) || WIDGET_HOSTS.test(u.host)) && (LINK_RE.test(l.text) || LINK_RE.test(u.pathname) || WIDGET_HOSTS.test(u.host)) && u.href.split("#")[0] !== page.url().split("#")[0]; } catch { return false; }
     }).map((l) => [l.href.split("#")[0], l])).values()].slice(0, 2);
     for (const l of next) { try { out.pages.push(l.href); await readPage(page, l.href.split("#")[0], out); } catch { /* skip (a bot check on a sub-page just ends that page) */ } }
     if (!out.images.length) {   // nothing recognisable: one screenshot of the top of the home page
@@ -257,7 +271,7 @@ try {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const chosen = (k) => !values("--id").length || values("--id").includes(k.mosque_id);
   if (flag("--dry")) targets = values("--url").map((u) => ({ name: u, website: u }));
-  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => chosen(k) && !k.image).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
+  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => chosen(k) && !k.image && !k.doc).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
   else if (values("--id").length) {
     const urls = values("--url");
     const known = urls.length ? [] : (await call({ mode: "targets" })).targets;
@@ -280,12 +294,14 @@ try {
     const t0 = Date.now();
     try {
       const cap = await capture(browser, t.website);
-      const keyFor = (d) => keys.keys.find((k) => k.mosque_id === t.id && !k.image && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id && !k.image);
+      const live = (k) => k.mosque_id === t.id && !k.image && !k.doc;
+      const keyFor = (d) => keys.keys.find((k) => live(k) && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find(live);
       if (cap.blocked) {
         const line = `• ${t.name ?? t.website}: bot check — not read (${cap.blocked})`;
         // Refusals depend on the reader's network, so only the scheduled reader (GitHub Actions) records them.
         if (!flag("--dry") && SCHEDULED) await call({ mode: "blocked", mosque_id: t.id, url: t.website, reason: cap.blocked });
-        if (flag("--check")) { const key = keyFor(today); verdict(line, key, key.expect === "bot check" ? [] : ["site showed a bot check"]); }
+        // Rule key-vs-site: a bot check where the key expects times is a change on the site's side, reported as a warning.
+        if (flag("--check")) { const key = keyFor(today); verdict(line, key, [], key.expect === "bot check" ? undefined : "the site now shows a bot check to this reader — not a reading failure; the computer reader or a screenshot covers it (rule key-vs-site)"); }
         else console.log(line);
         continue;
       }
@@ -304,19 +320,27 @@ try {
         const d = res.resolved_today?.date, key = keyFor(d);
         if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); continue; }
         if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); continue; }
-        verdict(line, key, key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : [])
+        verdict(line, key, key.expect === "jumuah only" ? compare(key, res.resolved_today).concat(res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["daily times were stored for a Jumu'ah-only place"] : [])
+          : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : []).concat(compare({ jumuah: key.jumuah }, res.resolved_today))
           : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
   }
-  // Screenshot fixtures: re-read every check with all the rules, writing nothing (dry run).
-  if (flag("--check")) for (const key of keys.keys.filter((k) => k.image && chosen(k))) {
+  // Fixtures: screenshots ("image") and timetable PDFs ("doc") a community member sent, re-read every check with all
+  // the rules, writing nothing (dry run).
+  if (flag("--check")) for (const key of keys.keys.filter((k) => (k.image || k.doc) && chosen(k))) {
     const t0 = Date.now();
     try {
-      const res = await readScreenshot({ file: new URL(key.image, keyFile), id: key.mosque_id, taken: key.taken, url: key.url, dry: true });
-      verdict(`• ${key.name} [screenshot ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s`,
-        key, compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
-    } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [screenshot]: ERROR ${String(e).slice(0, 200)}`); }
+      const res = key.image
+        ? await readScreenshot({ file: new URL(key.image, keyFile), id: key.mosque_id, taken: key.taken, url: key.url, dry: true })
+        : await call({ mode: "ingest", dry: true, mosque_id: key.mosque_id, url: key.doc_url ?? key.url, taken: key.taken,
+            text: `=== timetable PDF the mosque links from its own website: ${key.doc_url ?? key.url} ===`,
+            docs: [{ media_type: "application/pdf", data: (await readFile(new URL(key.doc, keyFile))).toString("base64") }] });
+      const heldBack = key.expect === "held back";
+      verdict(`• ${key.name} [${key.image ? "screenshot" : "PDF"} ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s${res.stored_as !== "iqama" ? ` — ${res.stored_as}` : ""}`,
+        key, heldBack ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["start-time timetable was read as iqama"] : []).concat(compare({ jumuah: key.jumuah }, res.resolved_today))
+          : compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
+    } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [fixture]: ERROR ${String(e).slice(0, 200)}`); }
   }
   if (flag("--check")) {
     console.log("\nRules (supabase/functions/scout/rules.ts):");

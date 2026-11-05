@@ -1,5 +1,5 @@
 {
-  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser (or re-reads a screenshot fixture, writing nothing) and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to; an expired key is a warning. `rules` lists the rulebook ids (supabase/functions/scout/rules.ts) the key exercises; the check reports every rule as passing, failing or untested. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. \"expect\": \"held back\" = adhan-only page (passes only if nothing is stored as iqama); \"expect\": \"bot check\" = the site refuses automated readers (passes when the refusal is recognised). Keys with \"image\" are screenshot fixtures (screenshot inbox), read with the same rules.",
+  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser (or re-reads a screenshot fixture, writing nothing) and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to; an expired key is a warning. `rules` lists the rulebook ids (supabase/functions/scout/rules.ts) the key exercises; the check reports every rule as passing, failing or untested. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. \"expect\": \"held back\" = adhan-only page (passes only if nothing is stored as iqama; its Jumu'ah, if given, must still match); \"expect\": \"bot check\" = the site refuses automated readers (passes when the refusal is recognised). Keys with \"image\" (a screenshot) or \"doc\" (a timetable PDF) are fixtures a community member sent: re-read on every check with the same rules, writing nothing.",
   "keys": [
     {
       "name": "Masjid-E-Aqsa",
@@ -420,6 +420,370 @@
       "from": "HTTP 403 Forbidden to automated readers (3 Nov)",
       "rules": [
         "bot-check"
+      ]
+    },
+    {
+      "name": "Mississauga Muslim Community Center (MMCC)",
+      "mosque_id": "8a275ac1-67be-4707-abc2-06569d6ac3a8",
+      "url": "https://mmcc-canada.org/",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:45",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "Wael's screenshot of mmcc-canada.org, 4 Nov (daily table: Adhan / Iqamah columns, Sunrise row, Friday Prayer row with three times). Daily table, so the live key covers this day only.",
+      "rules": [
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "jumuah-start-iqamah"
+      ]
+    },
+    {
+      "name": "Mississauga Muslim Community Center (MMCC)",
+      "mosque_id": "8a275ac1-67be-4707-abc2-06569d6ac3a8",
+      "url": "https://mmcc-canada.org/",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:00",
+        "asr": "15:45",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "image": "fixtures/mmcc-2026-11-04.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of mmcc-canada.org, 4 Nov (browser bar cropped off)",
+      "rules": [
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "jumuah-start-iqamah",
+        "shown-date",
+        "formats"
+      ]
+    },
+    {
+      "name": "Islamic Forum of Canada",
+      "mosque_id": "5c77b57d-89f0-4494-ab4f-b1c933a81371",
+      "url": "https://islamicforumonline.com/",
+      "doc": "fixtures/ifc-faisaliyyah-hanafi-timetable.pdf",
+      "doc_url": "https://islamicforumonline.com/wp-content/uploads/2017/04/SALAH-TIMETABLE-04-FAISALIYYAH-HANAFI-06.pdf",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "from": "PDF Wael sent, 4 Nov: Al-Faisaliyyah perpetual Hanafi timetable (2017; columns Dawn / Sunrise / Noon / Afternoon / Sunset / Night, every 5th day, no year). Prayer start times, not iqama: must never be stored as iqama.",
+      "rules": [
+        "pdf-year-columns",
+        "not-a-prayer",
+        "adhan-check"
+      ]
+    },
+    {
+      "name": "ICCO MAC Masjid",
+      "mosque_id": "911b3ffa-7815-44df-8ef7-17429b188366",
+      "url": "https://centres.macnet.ca/icco/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:14",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "11:00"
+        },
+        {
+          "khutbah": "12:15"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "Wael's screenshot of centres.macnet.ca/icco (icco.ca redirects there), 4 Nov: big iqama + small ATHAN; block 'Friday Prayers, November 6' (winter times). Daily page, so the live key covers this day only.",
+      "rules": [
+        "athan-beside-iqama",
+        "dated-friday-block",
+        "jumuah-start-iqamah"
+      ]
+    },
+    {
+      "name": "ICCO MAC Masjid",
+      "mosque_id": "911b3ffa-7815-44df-8ef7-17429b188366",
+      "url": "https://centres.macnet.ca/icco/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:00",
+        "asr": "15:30",
+        "maghrib": "17:14",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "11:00"
+        },
+        {
+          "khutbah": "12:15"
+        },
+        {
+          "khutbah": "13:30"
+        },
+        {
+          "khutbah": "14:30"
+        }
+      ],
+      "image": "fixtures/icco-2026-11-04.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of centres.macnet.ca/icco, 4 Nov",
+      "rules": [
+        "athan-beside-iqama",
+        "dated-friday-block",
+        "jumuah-start-iqamah",
+        "shown-date"
+      ]
+    },
+    {
+      "name": "Masjid Al-Salam",
+      "mosque_id": "497505c3-4c4c-4b03-a6c1-7e73872afc67",
+      "url": "http://www.mpicbrampton.com/",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "12:45",
+        "asr": "15:00",
+        "maghrib": "17:11",
+        "isha": "19:00"
+      },
+      "jumuah": [
+        {
+          "khutbah": "12:10",
+          "salah": "12:40"
+        },
+        {
+          "khutbah": "13:10",
+          "salah": "13:40"
+        },
+        {
+          "khutbah": "14:00",
+          "salah": "14:25"
+        }
+      ],
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-04",
+      "from": "The site's 'Prayer Times' button opens https://www.prayertimedisplay.com/ptdp/ldt.php?masjid=MAS001 (link from Wael, 4 Nov); widget shows Salah start + Iqamah, Sunrise/Ishraq/Chast/Zawal rows, Maghrib 'Tomorrow' line, three Jummah slots with Khutbah + Iqamah. Daily widget: live key covers this day only.",
+      "rules": [
+        "widget-links",
+        "iqama-not-adhan",
+        "not-a-prayer",
+        "tomorrow-line",
+        "jumuah-start-iqamah",
+        "real-browser"
+      ]
+    },
+    {
+      "name": "Nasfat Peel Region",
+      "mosque_id": "ed1ad948-fc2e-4154-906f-cf6475728f2a",
+      "url": "https://nasfatpeelregion.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "from": "Wael's screenshot + monthly CSV, 4 Nov: 'Times shown are Adhan times for Brampton, ON'; 'open only on Sundays, 11am to 3pm… not open for daily congregational prayers'. The CSV is the same calculated Brampton adhan table. Must never be stored as iqama. (Website on file was nasfatpeelregion.com, a domain that does not exist; corrected to .ca.)",
+      "rules": [
+        "iqama-not-adhan",
+        "adhan-check",
+        "jamaah-only"
+      ]
+    },
+    {
+      "name": "Huttonville Jame Masjid",
+      "mosque_id": "f0832260-4eab-4a5a-a61b-97a43123e65d",
+      "url": "https://wphc.ca/",
+      "valid_from": "2026-11-01",
+      "valid_to": "2026-11-10",
+      "from": "wphc.ca, 4 Nov (Wael's screenshot): winter table under the mislabelled heading 'Ramadan Prayer Timings', image with no alt text; Nov 1-10 row. Jumu'ah from the page's JUMA TIMING block.",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:15",
+        "asr": "15:45",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:00"
+        }
+      ],
+      "rules": [
+        "heading-images",
+        "dates-beat-titles",
+        "shared-site",
+        "date-range-block",
+        "rules-beat-tables"
+      ]
+    },
+    {
+      "name": "Huttonville Jame Masjid",
+      "mosque_id": "f0832260-4eab-4a5a-a61b-97a43123e65d",
+      "url": "https://wphc.ca/",
+      "image": "fixtures/huttonville-winter-table-2026.jpg",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "from": "Wael's screenshot of the wphc.ca table (heading 'RAMADAN PRAYER TIMINGS', rows Nov-Feb in 10-day periods)",
+      "times": {
+        "fajr": "06:00",
+        "dhuhr": "13:15",
+        "asr": "15:45",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "rules": [
+        "dates-beat-titles",
+        "date-range-block",
+        "rules-beat-tables",
+        "shown-date"
+      ]
+    },
+    {
+      "name": "Ha-Meem Musalla (Peace and Harmony Centre)",
+      "mosque_id": "1dc0d3f6-0ef7-4365-8e4c-c2631e4de991",
+      "url": "https://wphc.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "jumuah only",
+      "from": "wphc.ca lists Ha Meem Musalla with Jumu'ah only (12:30, 1:20); the site runs Huttonville Mosque for daily prayers",
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:20"
+        }
+      ],
+      "rules": [
+        "shared-site"
+      ]
+    },
+    {
+      "name": "Canadian Islamic Union (CIU)",
+      "mosque_id": "5ad886e9-bb04-41fb-b2d4-d8b9f9d54a5e",
+      "url": "https://www.ciucanada.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "jumuah": [
+        {
+          "khutbah": "13:45"
+        }
+      ],
+      "from": "Wael's screenshots of ciucanada.ca, 4 Nov: today box Fajr 5:36, Dhuhr 12:01, Asr 3:22, Maghrib 5:05, Isha 6:26 and a Yearly Calendar of 'iqamah ranges'. The site's day-by-day calendar (in its script bundle) matches the calculated ISNA / Hanafi-Asr start times on 98% of days, so the daily times are start times and are held back (rules adhan-check, jamaah-only). Jumu'ah: khutbah 1:45 PM, salah 2:05 PM, all year.",
+      "rules": [
+        "adhan-check",
+        "jamaah-only",
+        "bundle-timetables",
+        "jumuah-start-iqamah",
+        "formats"
+      ]
+    },
+    {
+      "name": "Canadian Islamic Union (CIU)",
+      "mosque_id": "5ad886e9-bb04-41fb-b2d4-d8b9f9d54a5e",
+      "url": "https://www.ciucanada.ca/",
+      "image": "fixtures/ciu-2026-11-04.png",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "jumuah": [
+        {
+          "khutbah": "13:45"
+        }
+      ],
+      "from": "Wael's screenshot of ciucanada.ca's 'Today's Prayer Times' box, 4 Nov (no browser bar in the picture)",
+      "rules": [
+        "adhan-check",
+        "shown-date",
+        "jumuah-start-iqamah"
+      ]
+    },
+    {
+      "name": "Malton Mosque",
+      "mosque_id": "a2d49101-ee40-4d59-8c30-f68a58870e13",
+      "url": "http://maltonmasjid.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-30",
+      "jumuah": [
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:15"
+        }
+      ],
+      "from": "Malton Masjid's ad-din widget as rendered 4 Nov: 'Salah | Begins | Iqamah' table; Jumah rows Begins 12:02 PM (Dhuhr start) with Iqamah 1:00 PM and 2:15 PM. Jumu'ah only (the daily rows change daily).",
+      "rules": [
+        "jumuah-start-iqamah",
+        "jumuah-shared-start",
+        "iqama-not-adhan"
+      ]
+    },
+    {
+      "name": "Muslim Neighbour Nexus (MNN)",
+      "mosque_id": "8ddeffe6-0b9b-4b4f-9ad9-d95207e15a86",
+      "url": "http://mnnexus.ca/",
+      "valid_from": "2026-11-04",
+      "valid_to": "2026-11-30",
+      "jumuah": [
+        {
+          "khutbah": "12:00"
+        },
+        {
+          "khutbah": "13:00"
+        },
+        {
+          "khutbah": "14:00"
+        }
+      ],
+      "from": "MNN's iqamah widget (iqamah.mnnexus.ca), 4 Nov: 'MNN Masjid: 12:00PM, 1:00PM, 2:00PM'; 'Churchill Meadows CC: 12:30PM, 1:15PM' is another venue and must not be listed for the masjid.",
+      "rules": [
+        "jumuah-other-venue",
+        "jumuah-start-iqamah"
       ]
     }
   ]

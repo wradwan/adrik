@@ -20,6 +20,10 @@
 // v20: computer reader — sites that refuse automated readers are read in a person's own Chrome (source "pc-chrome",
 //   stored as kind browser with notes "PC CHROME: …"); targets also lists them ("computer"); a site that refuses a
 //   normal browser too is recorded as SITE CLOSED.
+// v21: Maghrib check — a fixed Maghrib time before sunset or more than 45 min after it is dropped (rule maghrib-near-sunset).
+// v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
+// v23: Jumu'ah-only places count as covered for the daily prayers: browser and computer readers re-read them every 3 days.
+// v24: Jumu'ah check (one start time shared by several slots is not a khutbah); a re-read replaces the month's Jumu'ah slots.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -203,6 +207,47 @@ function adhanVerdict(m: Out, out: Out): { verdict: "adhan" | "iqama" | "unclear
   return { verdict, close, early, total };
 }
 
+// Rule maghrib-near-sunset: a Maghrib jama'ah starts shortly after sunset. A fixed Maghrib time before sunset or more
+// than 45 minutes after it is wrong for that date (typically a time not updated after a clock change): it is dropped
+// before storing, and the read is noted. Sunset/offset rules are unaffected.
+function sunsetMin(m: Out, date: string): number {
+  const [lng, lat] = lngLat(m);
+  const t = new adhan.PrayerTimes(new adhan.Coordinates(lat, lng), new Date(date + "T12:00:00Z"), adhan.CalculationMethod.NorthAmerica());
+  const [h, mi] = new Intl.DateTimeFormat("en-CA", { timeZone: m.tz ?? "America/Toronto", hour12: false, hour: "2-digit", minute: "2-digit" }).format(t.maghrib).split(":").map(Number);
+  return (h % 24) * 60 + mi;
+}
+function checkMaghrib(m: Out, out: Out): void {
+  const bad: string[] = [];
+  const off = (date: string, t: string) => { const [h, mi] = String(t).split(":").map(Number); return h * 60 + mi - sunsetMin(m, date); };
+  for (const mo of out.months ?? []) for (const r of mo.rows ?? []) {
+    if (!r.maghrib || !/^\d{4}-\d{2}-\d{2}$/.test(r.date) || !/^\d{1,2}:\d{2}/.test(r.maghrib)) continue;
+    const d = off(r.date, r.maghrib);
+    if (d < -2 || d > 45) { bad.push(`${r.date} ${r.maghrib}`); r.maghrib = null; }
+  }
+  out.rules = (out.rules ?? []).filter((u: Out) => {
+    if (u.prayer !== "maghrib" || u.kind !== "fixed" || !u.fixed_time || !/^\d{4}-\d{2}-\d{2}$/.test(String(u.valid_from))) return true;
+    const d = off(u.valid_from, u.fixed_time);
+    if (d < -2 || d > 45) { bad.push(`rule from ${u.valid_from} ${u.fixed_time}`); return false; }
+    return true;
+  });
+  if (bad.length) out.notes = `${out.notes ?? ""} [Maghrib check: dropped ${bad.length} Maghrib time(s) not within sunset..sunset+45 min (${bad.slice(0, 3).join("; ")}${bad.length > 3 ? "; …" : ""}).]`.trim();
+}
+
+// Rule jumuah-shared-start: two Jumu'ah slots cannot share one khutbah time. A khutbah time repeated across slots whose
+// salah times differ is the day's prayer-start (Begins / adhan) time, not a khutbah: each slot keeps its salah time as
+// its only time (khutbah = salah, as in rule jumuah-start-iqamah).
+function checkJumuah(out: Out): void {
+  const js: Out[] = out.jumuah ?? [], fixed: string[] = [];
+  for (const j of js) {
+    const same = js.filter((x) => x.khutbah_time === j.khutbah_time);
+    if (same.length > 1 && new Set(same.map((x) => x.salah_time)).size > 1 && j.salah_time && j.salah_time !== j.khutbah_time) {
+      fixed.push(`${j.khutbah_time}→${j.salah_time}`); j.shared = true;
+    }
+  }
+  for (const j of js) if (j.shared) { j.khutbah_time = j.salah_time; j.salah_offset_min = 0; delete j.shared; }
+  if (fixed.length) out.notes = `${out.notes ?? ""} [Jumu'ah check: one start time shared by several slots is not a khutbah; each slot keeps its salah time (${fixed.join(", ")}).]`.trim();
+}
+
 // Arithmetic decides when it is clear; when it is not, Claude's reading of the page decides.
 function classify(m: Out, out: Out) {
   const av = adhanVerdict(m, out);
@@ -242,7 +287,11 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
   }
 
   const jum = (out.jumuah ?? []).map((j: Out) => ({ mosque_id: m.id, slot: j.slot, khutbah_time: j.khutbah_time, salah_time: j.salah_time, salah_offset_min: j.salah_offset_min ?? 30, language: j.language, valid_from: today.slice(0, 8) + "01", source_id: sid }));
-  if (jum.length) await db.from("jumuah_slots").upsert(jum, { onConflict: "mosque_id,slot,valid_from" });
+  if (jum.length) {
+    await db.from("jumuah_slots").upsert(jum, { onConflict: "mosque_id,slot,valid_from" });
+    // Rule rule-replacement: a re-read replaces the month's Jumu'ah slots — slots the page no longer lists are removed.
+    await db.from("jumuah_slots").delete().eq("mosque_id", m.id).eq("valid_from", jum[0].valid_from).gt("slot", Math.max(...jum.map((j: Out) => Number(j.slot) || 0)));
+  }
 
   const spec = (out.special ?? []).map((s: Out) => ({ mosque_id: m.id, date: s.date, name: s.name, start_time: s.start_time, source_id: sid }));
   if (spec.length) await db.from("special_jamaah").insert(spec);
@@ -265,7 +314,7 @@ async function store(db: SupabaseClient, m: Out, out: Out, hash: string, url: st
 async function browserTargets(db: SupabaseClient) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const [{ data: ms }, { data: rows }, { data: rules }, { data: srcs }] = await Promise.all([
-    db.from("mosques").select("id,name,website,community").eq("active", true).not("website", "is", null),
+    db.from("mosques").select("id,name,website,community,jumuah_only").eq("active", true).not("website", "is", null),
     db.from("iqama_rows").select("mosque_id,prayer").eq("date", today).eq("quarantined", false).limit(5000),
     db.from("iqama_rules").select("mosque_id,prayer").lte("valid_from", today).or(`valid_to.is.null,valid_to.gte.${today}`).limit(5000),
     db.from("sources").select("mosque_id,fetched_at,notes").eq("kind", "browser").order("fetched_at", { ascending: false }).limit(5000),
@@ -279,14 +328,15 @@ async function browserTargets(db: SupabaseClient) {
   }
   const stale = Date.now() - 3 * 864e5, botWait = Date.now() - 7 * 864e5;
   // Rule bot-check: a site that showed a bot check is not visited again for 7 days.
-  const all = (ms ?? []).map((m) => ({ ...m, covered: cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
+  // Rule jumuah-only-places: a Jumu'ah-only place never misses a daily prayer, so only the 3-day refresh applies.
+  const all = (ms ?? []).map((m) => ({ ...m, covered: m.jumuah_only ? 5 : cov.get(m.id)?.size ?? 0, last_browser: lastBrowser.get(m.id)?.at ?? null, bot: !!lastBrowser.get(m.id)?.bot }));
   const blocked = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > botWait && m.covered < 5);
   const targets = all.filter((m) => !blocked.includes(m))
     .filter((m) => m.covered < 5 || (m.last_browser && Date.parse(m.last_browser) < stale))
     .map((m) => ({ ...m, reason: m.covered < 5 ? `missing ${5 - m.covered} prayer(s) today` : "browser refresh (every 3 days)" }))
     .sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || a.name.localeCompare(b.name));
   const computer = all.filter((m) => m.bot && m.last_browser && Date.parse(m.last_browser) > Date.now() - 8 * 864e5)
-    .filter((m) => { const pc = lastPc.get(m.id); return !(pc?.closed && Date.parse(pc.at) > botWait); });
+    .filter((m) => { const pc = lastPc.get(m.id); return !(pc?.closed && Date.parse(pc.at) > botWait) && !(m.jumuah_only && pc && Date.parse(pc.at) > stale); });
   return { targets, blocked: blocked.map((m) => ({ id: m.id, name: m.name, website: m.website, since: m.last_browser, reason: "bot check: read in a person's browser (computer reader) or from a screenshot" })),
     computer: computer.map((m) => ({ id: m.id, name: m.name, website: m.website, covered_today: m.covered, last_computer_read: lastPc.get(m.id)?.at ?? null })) };
 }
@@ -330,6 +380,8 @@ Deno.serve(async (req) => {
         : pc ? `This site refuses automated readers, so it was read in a person's own Chrome on their computer. Below is the rendered text of the prayer-time block(s) the page showed (after clicking any "prayer times" opener), then any Jumu'ah lines on the page.\n\n${text}`
         : text;
       const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
+      checkMaghrib(m, out);
+      checkJumuah(out);
       if (body.dry) {   // test fixture: read with every rule, write nothing
         const { av, isAdhan } = classify(m, out);
         return Response.json({ status: "dry", confidence: out.confidence, notes: out.notes, stored_as: isAdhan ? "held back (times match the adhan)" : "iqama",
@@ -345,6 +397,8 @@ Deno.serve(async (req) => {
     const { data: last } = await db.from("sources").select("raw_hash").eq("mosque_id", m.id).eq("kind", "website").order("fetched_at", { ascending: false }).limit(1).maybeSingle();
     if (!body.force && last?.raw_hash === hash) return Response.json({ status: "unchanged" });
     const out = await extract(text, label(m), today, { images: [], docs }, false);
+    checkMaghrib(m, out);
+    checkJumuah(out);
     return Response.json(await store(db, m, out, hash, urls[0], "website"));
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });

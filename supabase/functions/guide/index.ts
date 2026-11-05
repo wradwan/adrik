@@ -4,6 +4,8 @@
 //        sort?: "nearest" (default: closest mosque you can still catch) | "iqama" (earliest catchable iqama; ties → shorter trip) }
 // Returns { prayer, adhan, now, recommendation, alternatives, note }
 // Secrets: GOOGLE_MAPS_API_KEY (optional — falls back to distance-based ETA)
+// Rule maghrib-at-sunset: a mosque that publishes no Maghrib time for the day (or whose Maghrib was dropped as stale)
+// is taken to pray Maghrib at sunset at its own location (data: "sunset").
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import adhan from "npm:adhan@4.4.3";
@@ -14,6 +16,8 @@ const GKEY = Deno.env.get("GOOGLE_MAPS_API_KEY");
 const TZ = "America/Toronto";
 
 const W = { earliest: 0.4, slack: 0.2, trust: 0.2, travel: 0.1, affinity: 0.1 };
+// Communities whose Maghrib jama'ah starts at sunset (Shia Maghrib is later; jamatkhanas hold no Maghrib jama'ah).
+const SUNSET_MAGHRIB = new Set(["sunni", "ahmadiyya"]);
 
 // deno-lint-ignore no-explicit-any
 type Mosque = Record<string, any>;
@@ -115,7 +119,7 @@ Deno.serve(async (req) => {
       i++; prayer = seq[i].prayer; offset = seq[i].offset;
       ev = await evaluate(prayer, offset);
     }
-    const { pool, uniq, noData, windowEnd } = ev;
+    const { pool, noData, withData, windowEnd } = ev;
     const ctx = dayCtx(offset);
     const cap = (p: string) => p[0].toUpperCase() + p.slice(1);
     const lastSkipped = skipped.at(-1);
@@ -156,6 +160,12 @@ Deno.serve(async (req) => {
       const mr = (rows ?? []).filter((r: { mosque_id: string; quarantined: boolean }) => r.mosque_id === m.id && !r.quarantined);
       if (mr.length) { for (const r of mr) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "table" }); continue; }
       const rule = (rules ?? []).find((r: { mosque_id: string }) => r.mosque_id === m.id);
+      // Rule maghrib-at-sunset: no Maghrib published today → sunset at the mosque. Sunset is the earliest a Maghrib
+      // jama'ah can start, so this never says a jama'ah is still ahead when it has already begun.
+      if (!rule && prayer === "maghrib" && SUNSET_MAGHRIB.has(m.community ?? "sunni")) {
+        cands.push({ mosque: m, iqama: adhanTimes(m.lat, m.lng, dateObj, m.asr_madhhab ?? "standard").maghrib + shift, seq: 1, source: "sunset" });
+        continue;
+      }
       if (!rule) {
         const rr = (recent ?? []).filter((r: { mosque_id: string }) => r.mosque_id === m.id);
         if (rr.length) { const last = rr[0].date; for (const r of rr.filter((x: { date: string }) => x.date === last)) cands.push({ mosque: m, iqama: hm(r.iqama_time) + shift, seq: r.seq, label: r.label, source: "recent" }); }
@@ -169,9 +179,11 @@ Deno.serve(async (req) => {
       else if (rule.kind === "offset_from_adhan") iq = mosqueAdhan[prayer] + (rule.minutes ?? 0);
       if (iq != null) cands.push({ mosque: m, iqama: iq + shift, seq: 1, source: "rule" });
     }
-    const noData = (ms ?? []).filter((m: { id: string }) => !cands.some((c) => c.mosque.id === m.id)).length;
+    // "With data" counts mosques with published times; a sunset Maghrib is a default, not data.
+    const noData = (ms ?? []).filter((m: { id: string }) => !cands.some((c) => c.mosque.id === m.id && c.source !== "sunset")).length;
+    const withData = new Set(cands.filter((c) => c.source !== "sunset").map((c) => c.mosque.id)).size;
     const uniq = [...new Map(cands.map((c) => [c.mosque.id, c.mosque])).values()];
-    if (!cands.length) return { pool: [] as Scored[], uniq, noData, windowEnd };
+    if (!cands.length) return { pool: [] as Scored[], uniq, noData, withData, windowEnd };
 
     // ETAs in one call.
     const eta = await etas([lat, lng], uniq.map((m) => [m.lat, m.lng] as [number, number]), mode);
@@ -200,11 +212,11 @@ Deno.serve(async (req) => {
     if (sortBy === "nearest") pool.sort((a, b2) => a.travel - b2.travel || a.dist - b2.dist || a.c.iqama - b2.c.iqama);
     else if (!feas.length) pool.sort((a, b2) => b2.slack - a.slack); // none catchable: least late first
     else pool.sort((a, b2) => a.c.iqama - b2.c.iqama || a.travel - b2.travel || (b2.score ?? 0) - (a.score ?? 0));
-    return { pool, uniq, noData, windowEnd };
+    return { pool, uniq, noData, withData, windowEnd };
     }
 
     const base = { prayer, day: offset === 1 ? "tomorrow" : "today", date: ctx.dateStr, now: fmt(nowM), adhan: fmtD(ctx.ad[prayer] + ctx.shift), window_end: fmtD(windowEnd),
-      missed: lastSkipped ?? null, sort: sortBy, eta_source: GKEY ? "google_routes" : "estimate", candidates: ms?.length ?? 0, with_data: uniq.length, without_data: noData };
+      missed: lastSkipped ?? null, sort: sortBy, eta_source: GKEY ? "google_routes" : "estimate", candidates: ms?.length ?? 0, with_data: withData, without_data: noData };
 
     if (!pool.length) return json({ ...base, recommendation: null, alternatives: [], note: `${skipNote}No iqama data for ${cap(prayer)} within ${radius / 1000} km.` });
 
