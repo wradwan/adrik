@@ -257,7 +257,7 @@ try {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
   const chosen = (k) => !values("--id").length || values("--id").includes(k.mosque_id);
   if (flag("--dry")) targets = values("--url").map((u) => ({ name: u, website: u }));
-  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => chosen(k) && !k.image).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
+  else if (flag("--check")) targets = [...new Map(keys.keys.filter((k) => chosen(k) && !k.image && !k.doc).map((k) => [k.mosque_id, { id: k.mosque_id, name: k.name, website: k.url }])).values()];
   else if (values("--id").length) {
     const urls = values("--url");
     const known = urls.length ? [] : (await call({ mode: "targets" })).targets;
@@ -280,7 +280,8 @@ try {
     const t0 = Date.now();
     try {
       const cap = await capture(browser, t.website);
-      const keyFor = (d) => keys.keys.find((k) => k.mosque_id === t.id && !k.image && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find((k) => k.mosque_id === t.id && !k.image);
+      const live = (k) => k.mosque_id === t.id && !k.image && !k.doc;
+      const keyFor = (d) => keys.keys.find((k) => live(k) && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find(live);
       if (cap.blocked) {
         const line = `• ${t.name ?? t.website}: bot check — not read (${cap.blocked})`;
         // Refusals depend on the reader's network, so only the scheduled reader (GitHub Actions) records them.
@@ -309,14 +310,21 @@ try {
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
   }
-  // Screenshot fixtures: re-read every check with all the rules, writing nothing (dry run).
-  if (flag("--check")) for (const key of keys.keys.filter((k) => k.image && chosen(k))) {
+  // Fixtures: screenshots ("image") and timetable PDFs ("doc") a community member sent, re-read every check with all
+  // the rules, writing nothing (dry run).
+  if (flag("--check")) for (const key of keys.keys.filter((k) => (k.image || k.doc) && chosen(k))) {
     const t0 = Date.now();
     try {
-      const res = await readScreenshot({ file: new URL(key.image, keyFile), id: key.mosque_id, taken: key.taken, url: key.url, dry: true });
-      verdict(`• ${key.name} [screenshot ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s`,
-        key, compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
-    } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [screenshot]: ERROR ${String(e).slice(0, 200)}`); }
+      const res = key.image
+        ? await readScreenshot({ file: new URL(key.image, keyFile), id: key.mosque_id, taken: key.taken, url: key.url, dry: true })
+        : await call({ mode: "ingest", dry: true, mosque_id: key.mosque_id, url: key.doc_url ?? key.url, taken: key.taken,
+            text: `=== timetable PDF the mosque links from its own website: ${key.doc_url ?? key.url} ===`,
+            docs: [{ media_type: "application/pdf", data: (await readFile(new URL(key.doc, keyFile))).toString("base64") }] });
+      const heldBack = key.expect === "held back";
+      verdict(`• ${key.name} [${key.image ? "screenshot" : "PDF"} ${key.taken}]: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${Math.round((Date.now() - t0) / 1000)}s${res.stored_as !== "iqama" ? ` — ${res.stored_as}` : ""}`,
+        key, heldBack ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["start-time timetable was read as iqama"] : [])
+          : compare(key, res.resolved_today).concat(res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
+    } catch (e) { fails++; record(key, "fail"); console.log(`• ${key.name} [fixture]: ERROR ${String(e).slice(0, 200)}`); }
   }
   if (flag("--check")) {
     console.log("\nRules (supabase/functions/scout/rules.ts):");

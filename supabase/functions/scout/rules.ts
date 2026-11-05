@@ -169,8 +169,8 @@ export const RULES: Rule[] = [
     rule: `A key from a single-day widget covers that day only; an expired key is reported as a warning (send a fresh screenshot), not a failure.`,
     learned_from: "Rowdah Centre" },
   { id: "screenshot-inbox", kind: "process", where: "scout.mjs --image",
-    rule: `For sites no automated reader may open, a community member's screenshot of the mosque's own site is read with the same rules (stored as source kind "image"). Screenshot fixtures are re-read on every check without writing to the database (dry run).`,
-    learned_from: "BARIC, ISNA Canada" },
+    rule: `For sites no automated reader may open, a community member's screenshot of the mosque's own site is read with the same rules (stored as source kind "image"). Screenshots and timetable PDFs a community member sends are kept as fixtures and re-read on every check without writing to the database (dry run).`,
+    learned_from: "BARIC, ISNA Canada, MMCC (screenshots); Islamic Forum of Canada (Faisaliyyah Hanafi start-time PDF)" },
 ];
 
 /** The reading rules, as the bullet list Claude receives. */

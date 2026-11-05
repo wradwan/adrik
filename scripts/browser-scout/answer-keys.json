@@ -1,5 +1,5 @@
 {
-  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser (or re-reads a screenshot fixture, writing nothing) and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to; an expired key is a warning. `rules` lists the rulebook ids (supabase/functions/scout/rules.ts) the key exercises; the check reports every rule as passing, failing or untested. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. \"expect\": \"held back\" = adhan-only page (passes only if nothing is stored as iqama); \"expect\": \"bot check\" = the site refuses automated readers (passes when the refusal is recognised). Keys with \"image\" are screenshot fixtures (screenshot inbox), read with the same rules.",
+  "about": "Ground truth from Wael's screenshots of each mosque's own site. `node scout.mjs --check` reads each site in a real browser (or re-reads a screenshot fixture, writing nothing) and compares Claude's extraction with these keys. Times are iqama, 24-hour, Toronto. Rules: \"sunset\", \"sunset+3\", \"adhan+5\". A key is compared only on dates inside valid_from..valid_to; an expired key is a warning. `rules` lists the rulebook ids (supabase/functions/scout/rules.ts) the key exercises; the check reports every rule as passing, failing or untested. When a key and the live site disagree, first check the site's primary data (feed, widget, image): if the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. \"expect\": \"held back\" = adhan-only page (passes only if nothing is stored as iqama); \"expect\": \"bot check\" = the site refuses automated readers (passes when the refusal is recognised). Keys with \"image\" (a screenshot) or \"doc\" (a timetable PDF) are fixtures a community member sent: re-read on every check with the same rules, writing nothing.",
   "keys": [
     {
       "name": "Masjid-E-Aqsa",
@@ -486,6 +486,23 @@
         "jumuah-start-iqamah",
         "shown-date",
         "formats"
+      ]
+    },
+    {
+      "name": "Islamic Forum of Canada",
+      "mosque_id": "5c77b57d-89f0-4494-ab4f-b1c933a81371",
+      "url": "https://islamicforumonline.com/",
+      "doc": "fixtures/ifc-faisaliyyah-hanafi-timetable.pdf",
+      "doc_url": "https://islamicforumonline.com/wp-content/uploads/2017/04/SALAH-TIMETABLE-04-FAISALIYYAH-HANAFI-06.pdf",
+      "taken": "2026-11-04",
+      "valid_from": "2026-11-04",
+      "valid_to": "2099-12-31",
+      "expect": "held back",
+      "from": "PDF Wael sent, 4 Nov: Al-Faisaliyyah perpetual Hanafi timetable (2017; columns Dawn / Sunrise / Noon / Afternoon / Sunset / Night, every 5th day, no year). Prayer start times, not iqama: must never be stored as iqama.",
+      "rules": [
+        "pdf-year-columns",
+        "not-a-prayer",
+        "adhan-check"
       ]
     }
   ]
