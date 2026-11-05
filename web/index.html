@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f3d2e">
 <title>Adrik</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
@@ -12,19 +14,20 @@
 :root{
   --bg:#f6f3ea; --ink:#17251f; --muted:#5f6d66; --line:#d9d3c3;
   --green:#0f3d2e; --green-2:#1c5a44; --gold:#b8862b; --gold-soft:#f1e5c6;
-  --card:#ffffff; --warn:#8a3b1e;
+  --card:#ffffff; --warn:#8a3b1e; --gold-ink:#805c14; --link:#1c5a44; --on-green:#ffffff; --mark:#0f3d2e; --mark-glass:#d6a243;
   --display:"Fraunces",Georgia,serif; --arabic:"Amiri","Scheherazade New",serif; --body:"IBM Plex Sans",system-ui,sans-serif;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0c1a15; --ink:#efe9da; --muted:#9aa8a1; --line:#24352e; --green:#0f3d2e; --green-2:#2a6e55; --gold:#d6a243; --gold-soft:#2b2410; --card:#132520; --warn:#e08a63; color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0c1a15; --ink:#efe9da; --muted:#9aa8a1; --line:#24352e; --green:#0f3d2e; --green-2:#2a6e55; --gold:#d6a243; --gold-soft:#2b2410; --card:#132520; --warn:#e08a63; color-scheme:dark}
+  --bg:#0c1a15; --ink:#efe9da; --muted:#9aa8a1; --line:#24352e; --green:#0f3d2e; --green-2:#2a6e55; --gold:#d6a243; --gold-soft:#2b2410; --card:#132520; --warn:#e08a63; --gold-ink:#d6a243; --link:#86c9aa; --mark:#efe9da; --mark-glass:#b8862b; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0c1a15; --ink:#efe9da; --muted:#9aa8a1; --line:#24352e; --green:#0f3d2e; --green-2:#2a6e55; --gold:#d6a243; --gold-soft:#2b2410; --card:#132520; --warn:#e08a63; --gold-ink:#d6a243; --link:#86c9aa; --mark:#efe9da; --mark-glass:#b8862b; color-scheme:dark}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;
   padding-block:0 32px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .top{display:flex;align-items:baseline;justify-content:space-between;padding-top:calc(14px + env(safe-area-inset-top,0px));padding-bottom:10px}
-.brand{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.01em}
+.brand{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.01em;display:flex;align-items:center}
+.brand svg{width:26px;height:26px;margin-inline-end:8px;flex:none}
 .brand span{font-family:var(--arabic);font-size:22px;margin-inline-start:8px;color:var(--gold)}
 .date{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .prayer{display:flex;align-items:baseline;gap:12px;margin:10px 0 14px}
@@ -39,18 +42,19 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font
 .hero .v{font-family:var(--display);font-size:32px;white-space:nowrap;font-weight:500;line-height:1;font-variant-numeric:tabular-nums;margin-top:4px}
 .hero .v.leave{color:var(--gold)}
 .trust{font-size:12.5px;color:var(--muted);margin-top:12px;display:flex;gap:6px;align-items:center}
-.trust i{width:8px;height:8px;border-radius:50%;background:var(--gold);display:inline-block}
+.trust i{width:8px;height:8px;border-radius:50%;background:var(--gold);display:inline-block;flex:none}
+.trust.weak i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)}
 .note{margin:14px 0 0;padding:12px 14px;background:var(--gold-soft);border-radius:12px;font-size:14.5px}
 .note.warn{color:var(--warn)}
 .missed{margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);border-inline-start:4px solid var(--warn);font-size:14.5px}
 .btns{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:16px}
-.go{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--green-2);color:#fff;text-decoration:none;font-weight:600;font-size:17px;border-radius:14px;padding:16px;border:0}
-.go:focus-visible,.ghost:focus-visible,.seg button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.go{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--green-2);color:var(--on-green);text-decoration:none;font-weight:600;font-size:17px;border-radius:14px;padding:16px;border:0}
+.go:focus-visible,.ghost:focus-visible,.seg button:focus-visible{outline:3px solid var(--gold-ink);outline-offset:2px}
 .ghost{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:14px;padding:0 16px;font:inherit;font-weight:500}
 .ctrl{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 6px;align-items:center}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--card)}
 .seg button{background:transparent;border:0;padding:8px 14px;font:inherit;font-size:14px;color:var(--muted);cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--green);color:#fff}
+.seg button[aria-pressed="true"]{background:var(--green);color:var(--on-green)}
 .chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px;color:var(--muted);cursor:pointer}
 .chip[aria-pressed="true"]{border-color:var(--gold);color:var(--ink);background:var(--gold-soft)}
 h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:22px 0 8px;font-weight:600}
@@ -62,13 +66,13 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
 .alt .t small{display:block;font-family:var(--body);font-size:12px;color:var(--muted)}
 .alt li.miss{opacity:.65}
 .foot{margin-top:22px;font-size:12.5px;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.foot button{background:none;border:0;color:var(--green-2);font:inherit;font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
+.foot button{background:none;border:0;color:var(--link);font:inherit;font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
 .skeleton{color:var(--muted)}
 .topr{display:flex;align-items:center;gap:12px}
 .lang{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--card)}
 .lang button{background:transparent;border:0;padding:4px 10px;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer}
-.lang button[aria-pressed="true"]{background:var(--green);color:#fff}
-.lang button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.lang button[aria-pressed="true"]{background:var(--green);color:var(--on-green)}
+.lang button:focus-visible{outline:3px solid var(--gold-ink);outline-offset:2px}
 :root[lang="ar"]{--body:"IBM Plex Sans Arabic","IBM Plex Sans",system-ui,sans-serif;--display:"IBM Plex Sans Arabic","Fraunces",Georgia,serif}
 :root[lang="ar"] .date,:root[lang="ar"] .hero .k,:root[lang="ar"] h2{letter-spacing:0;text-transform:none}
 :root[lang="ar"] .prayer .ar{font-family:var(--display);font-size:22px}
@@ -80,7 +84,7 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
 .tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 12px;border-radius:14px;background:var(--line)}
 .tabs button{border:0;border-radius:10px;padding:10px 8px;font:inherit;font-size:14.5px;font-weight:600;color:var(--muted);background:transparent;cursor:pointer}
 .tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(15,61,46,.12)}
-.tabs button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.tabs button:focus-visible{outline:3px solid var(--gold-ink);outline-offset:2px}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:no-preference){.card{transition:opacity .25s}.card.loading{opacity:.55}}
 @media (min-width:640px){body{max-width:520px;margin:0 auto}}
@@ -88,7 +92,7 @@ h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
 </head>
 <body>
 <header class="top">
-  <div class="brand">Adrik<span>أدرك</span></div>
+  <div class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M15 54V34Q15 18 32 9Q49 18 49 34V54Z" fill="var(--mark)"/><path d="M22 22H42V25C42 31 35 34 34 37C35 40 42 43 42 49V52H22V49C22 43 29 40 30 37C29 34 22 31 22 25Z" fill="var(--mark-glass)"/><path d="M27 27H37C36 31 33.5 32.5 32 34.5C30.5 32.5 28 31 27 27Z" fill="var(--mark)"/><path d="M26.5 48.5C27.5 44.5 30.5 43 32 43C33.5 43 36.5 44.5 37.5 48.5Z" fill="var(--mark)"/></svg>Adrik<span>أدرك</span></div>
   <div class="topr">
     <div class="date" id="date">—</div>
     <div class="lang" role="group" aria-label="Language">
@@ -287,6 +291,7 @@ function render(d) {
     $("leave").textContent = rec.feasible ? tm(rec.leave_by) : L.now;
     go.href = rec.maps_url; go.removeAttribute("aria-disabled");
     $("trust").hidden = false;
+    $("trust").classList.toggle("weak", !(rec.data === "table" || rec.data === "jumuah"));
     $("trustText").textContent = ({table:L.fromTable, rule:L.fromRule, recent:L.fromRecent, jumuah:L.fromJumuah, sunset:L.fromSunset}[rec.data] || L.fromRule) + (d.eta_source === "estimate" ? L.estimated : L.live);
     const iq = tm(rec.iqama) + (tmr ? " " + L.tomorrow : ""), lb = tm(rec.leave_by) + (tmr ? " " + L.tomorrow : "");
     const mn = iso(nm(rec));
