@@ -59,13 +59,46 @@ async function call(body) {
 
 const bare = (h) => h.replace(/^www\./i, "").toLowerCase();
 
+// Rendered text of a frame, including text a plain innerText misses:
+//   rule shadow-widgets: web components (Masjidal's <masjidal-widget>, ...) keep their text in a shadow root;
+//   rule flutter-apps: a Flutter web app draws on a canvas, so its accessibility tree is switched on first.
+const PAGE_TEXT = async () => {
+  const ph = document.querySelector("flt-semantics-placeholder");
+  if (ph && !document.querySelector("flt-semantics")) { ph.click(); await new Promise((r) => setTimeout(r, 2500)); }
+  const parts = [document.body?.innerText ?? ""];
+  const walk = (root) => {
+    for (const el of root.querySelectorAll("*")) {
+      if (!el.shadowRoot) continue;
+      const t = [...el.shadowRoot.children].filter((c) => !/^(STYLE|SCRIPT|LINK|TEMPLATE)$/.test(c.tagName)).map((c) => c.innerText || "").join("\n").trim();
+      if (t) parts.push(`--- <${el.tagName.toLowerCase()}> widget ---\n` + t);
+      walk(el.shadowRoot);
+    }
+  };
+  walk(document);
+  const sem = [...document.querySelectorAll("flt-semantics")];
+  if (sem.length) {
+    const own = (e) => {
+      const l = e.getAttribute("aria-label");
+      if (l) return l.trim();
+      let t = e.textContent || "";
+      for (const c of e.querySelectorAll("flt-semantics")) if (c.parentElement?.closest("flt-semantics") === e) t = t.replace(c.textContent || "", "");
+      return t.trim();
+    };
+    const lines = sem.map(own).filter(Boolean).map((s) => s.replace(/\s*\n\s*/g, " "));
+    if (lines.length) parts[0] = lines.join("\n");   // the app's whole text (its plain innerText drops some labels)
+  }
+  return parts.filter((p) => p.trim()).join("\n\n");
+};
+
 // Marks the smallest on-screen elements that list at least three prayer names (and are not marked yet).
 const MARK_BLOCKS = (tag) => {
   const names = [/\bfaj[a]?r\b|\bsubh\b/i, /\bdh?uh?r\b|\bzuhr\b|\bzohr\b|\bduhr\b/i, /\basr\b/i, /\bmagh?rib\b/i, /\bisha\b/i];
   const hits = (t) => names.filter((r) => r.test(t)).length;
+  const shadowText = (el) => el.shadowRoot
+    ? [...el.shadowRoot.children].filter((c) => !/^(STYLE|SCRIPT|LINK|TEMPLATE)$/.test(c.tagName)).map((c) => c.innerText || "").join("\n") : "";
   const ok = [];
   for (const el of document.querySelectorAll("body *")) {
-    const t = el.innerText || "";
+    const t = (el.innerText || "") || shadowText(el);   // a web component's host is photographed whole (rule shadow-widgets)
     if (t.length > 2500 || hits(t) < 3 || !/\d{1,2}:\d{2}/.test(t)) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 120 || r.height < 80) continue;
@@ -107,7 +140,7 @@ let pass = 0;
 async function grab(page, out, label) {
   const texts = [];
   for (const f of page.frames()) {
-    try { const t = await f.evaluate(() => document.body?.innerText ?? ""); if (t.trim()) texts.push((f === page.mainFrame() ? "" : `--- widget ${f.url()} ---\n`) + t.slice(0, 30_000)); } catch { /* detached */ }
+    try { const t = await f.evaluate(PAGE_TEXT); if (t.trim()) texts.push((f === page.mainFrame() ? "" : `--- widget ${f.url()} ---\n`) + t.slice(0, 30_000)); } catch { /* detached */ }
   }
   out.text.push(`=== ${label} ===\n` + texts.join("\n\n"));
   for (const f of page.frames()) {

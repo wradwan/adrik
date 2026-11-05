@@ -3,10 +3,14 @@
 // (rule computer-reader). It finds the prayer-time blocks the same way the Browser Scout does (rule prayer-blocks),
 // clicks a "prayer times" opener when no table is visible (rule open-pop-ups), and returns JSON with a checksum so
 // the text reaches the Scout exactly as the page shows it (scripts/browser-scout/pc_ingest.py verifies it).
-// It never interacts with a bot check: it only reports one.
+// It reads web components' shadow roots (rule shadow-widgets) and switches on a Flutter app's accessibility tree
+// (rule flutter-apps). It never interacts with a bot check: it only reports one.
 await (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(4000);
+  // Rule flutter-apps: a Flutter web app draws on a canvas; switch on its accessibility tree so its text exists.
+  const ph = document.querySelector("flt-semantics-placeholder");
+  if (ph && !document.querySelector("flt-semantics")) { ph.click(); await sleep(2500); }
   const title = document.title, body = document.body?.innerText ?? "", short = body.length < 2500;
   if (short && /just a moment|attention required|verify you are human|checking (if )?the site connection|checking your browser|security check|captcha/i.test(`${title} ${body}`))
     return JSON.stringify({ challenge: true, title, url: location.href });
@@ -15,9 +19,13 @@ await (async () => {
 
   const names = [/\bfaj[a]?r\b|\bsubh\b/i, /\bdh?uh?r\b|\bzuhr\b|\bzohr\b/i, /\basr\b/i, /\bmagh?rib\b/i, /\bisha\b/i];
   const hits = (t) => names.filter((r) => r.test(t)).length;
+  // Rule shadow-widgets: a web component (Masjidal's <masjidal-widget>, ...) keeps its text in a shadow root.
+  const shadowText = (el) => el.shadowRoot
+    ? [...el.shadowRoot.children].filter((c) => !/^(STYLE|SCRIPT|LINK|TEMPLATE)$/.test(c.tagName)).map((c) => c.innerText || "").join("\n") : "";
+  const textOf = (el) => (el.innerText || "") || shadowText(el);
   const find = () => {
     const ok = [...document.querySelectorAll("body *")].filter((el) => {
-      const t = el.innerText || "", r = el.getBoundingClientRect();
+      const t = textOf(el), r = el.getBoundingClientRect();
       return t.length <= 2500 && hits(t) >= 3 && /\d{1,2}:\d{2}/.test(t) && r.width >= 120 && r.height >= 80;
     });
     // Widen the smallest blocks to keep headers, dates and Jumu'ah rows next to them.
@@ -53,10 +61,10 @@ await (async () => {
   // Plain spaces only (non-breaking and other Unicode spaces become " ", zero-width characters go), so a copy of the
   // text is exact and the checksum holds.
   const tidy = (s) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/[^\S\n]+/g, " ").replace(/ *\n[\s]*/g, "\n").trim();
-  const blocks = top.map((b) => tidy(b.innerText));
+  const blocks = top.map((b) => tidy(textOf(b)));
   const jumuah = [...document.querySelectorAll("body *")]
-    .filter((el) => /jum[uma]+'?a?h?|friday/i.test(el.innerText || "") && /\d{1,2}:\d{2}/.test(el.innerText || "") && (el.innerText || "").length < 400)
-    .filter((el, i, a) => !a.some((o) => o !== el && el.contains(o))).slice(0, 3).map((el) => tidy(el.innerText));
+    .filter((el) => { const t = textOf(el); return /jum[uma]+'?a?h?|friday/i.test(t) && /\d{1,2}:\d{2}/.test(t) && t.length < 400; })
+    .filter((el, i, a) => !a.some((o) => o !== el && el.contains(o))).slice(0, 3).map((el) => tidy(textOf(el)));
   // Checksum (FNV-1a over UTF-8) of exactly what is sent; pc_ingest.py refuses a copy that does not match.
   const text = blocks.join("\n=====\n") + "\n#####\n" + jumuah.join("\n");
   let h = 0x811c9dc5;
