@@ -198,7 +198,13 @@ async function capture(browser, site) {
   const out = { text: [], images: [], pages: [site] };
   try {
     let links;
-    try { links = await readPage(page, site, out); } catch (e) { if (e instanceof BotCheck) return { blocked: e.message }; throw e; }
+    try { links = await readPage(page, site, out); } catch (e) {
+      if (e instanceof BotCheck) return { blocked: e.message };
+      // Rule bot-check: a server that refuses or drops the reader's connection is refusing automated readers too.
+      const refused = String(e).match(/net::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|EMPTY_RESPONSE)/);
+      if (refused) return { blocked: `connection refused (${refused[0]}) at ${site}` };
+      throw e;
+    }
     const base = new URL(page.url());
     const next = [...new Map(links.filter((l) => {
       // Same-site prayer-times pages, plus "Prayer Times" links to a provider's page on another site (rule widget-links).
