@@ -5,7 +5,7 @@ Generated from `supabase/functions/scout/rules.ts` (the single source of truth) 
 
 **Adding a lesson.** When a site is read wrong: (1) write the general rule in `rules.ts` — never hand-enter that mosque's times; (2) add an answer key (or a screenshot fixture) that would have caught it and list the rule id in its `rules`; (3) push. Every push re-runs all answer keys and prints each rule as passing (✓), failing (✗) or untested (·).
 
-**49 rules**: 24 reading a schedule · 5 checks in code · 7 finding the times (plain reader) · 9 reading in a real browser · 4 keeping the rules honest.
+**50 rules**: 24 reading a schedule · 5 checks in code · 7 finding the times (plain reader) · 9 reading in a real browser · 5 keeping the rules honest.
 
 ## Reading a schedule
 
@@ -86,6 +86,7 @@ How screenshots, answer keys and fixes work.
 
 | Rule | What it says | Learned from | Tested by |
 |---|---|---|---|
+| `jamaah-only`<br><sub>app (guide) + index.ts quarantine</sub> | The app shows only jama'ah (iqama) times a mosque publishes. Prayer start times are never shown or counted as an iqama, even when a mosque publishes them as its "daily prayer times"; such a mosque is suggested only for the prayers it gives a jama'ah time for. | Islamic Forum of Canada (its Faisaliyyah Hanafi start-time PDF vs. its published Dhuhr iqama 1:30) — Wael's decision, 4 Nov 2026 | — |
 | `screenshot-is-answer-key` | Every screenshot of a mosque's own site becomes an answer key (ground truth). A wrong read is fixed by a general rule in this file — never by hand-entering that mosque's times. | Wael's instruction (3 Nov 2026) | — |
 | `key-vs-site` | When a key and the live site disagree, check the site's primary data first (feed, widget, image). If the mosque changed its times, end the old key and add a new one; only a disagreement with the primary data is a Scout bug. | Al-Hikmah Centre (Asr changed after the screenshot) | Al-Hikmah Centre |
 | `daily-keys-expire` | A key from a single-day widget covers that day only; an expired key is reported as a warning (send a fresh screenshot), not a failure. | Rowdah Centre | Rowdah Centre |

@@ -165,6 +165,9 @@ export const RULES: Rule[] = [
     learned_from: "Al-Hikmah, Rowdah, DawaNet, Rahmat (single-day widgets)" },
 
   // ── Keeping the rules honest ────────────────────────────────────────────────────────────────────────────────
+  { id: "jamaah-only", kind: "process", where: "app (guide) + index.ts quarantine",
+    rule: `The app shows only jama'ah (iqama) times a mosque publishes. Prayer start times are never shown or counted as an iqama, even when a mosque publishes them as its "daily prayer times"; such a mosque is suggested only for the prayers it gives a jama'ah time for.`,
+    learned_from: "Islamic Forum of Canada (its Faisaliyyah Hanafi start-time PDF vs. its published Dhuhr iqama 1:30) — Wael's decision, 4 Nov 2026" },
   { id: "screenshot-is-answer-key", kind: "process",
     rule: `Every screenshot of a mosque's own site becomes an answer key (ground truth). A wrong read is fixed by a general rule in this file — never by hand-entering that mosque's times.`,
     learned_from: "Wael's instruction (3 Nov 2026)" },
