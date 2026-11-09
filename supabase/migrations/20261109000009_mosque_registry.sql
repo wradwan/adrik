@@ -100,15 +100,15 @@ revoke all on mosque_candidates from anon, authenticated;
 -- 'accepted' (optionally with community) or 'rejected', and reviewed_by / reviewed_at.
 create or replace function classify_candidates() returns void language plpgsql as $$
 declare
-  worship_name constant text := '(masjid|masjed|mosque|musall?a|musallah|jamat ?khana|jamaat|jama.?at|islamic|muslim|imambargah|imambara|husain|hussain|zainab|zahra|zawiy|markaz|da.?wah|ummah|baitul|bait ul|madinah|madina|quba|taqwa|noor|salaam|salam|tawheed|tawhid|furqan|huda|iman|ihsan|sunnah|deen|madrass?a)';
+  worship_name constant text := '(masjid|masjed|mosque|musall?a|musallah|jamat ?khana|jamaat|jama.?at|islamic|muslim|imam ?barg|imambara|ismaili|imam[ -]e[ -]|hoss?ain|husain|sufi|jerrahi|tekke|dergah|\mjk\M|hussain|zainab|zahra|zawiy|markaz|da.?wah|ummah|baitul|bait ul|madinah|madina|quba|taqwa|noor|salaam|salam|tawheed|tawhid|furqan|huda|iman|ihsan|sunnah|deen|madrass?a)';
   shops constant text[] := array['store','grocery_store','supermarket','food_store','convenience_store','restaurant','meal_takeaway',
     'cafe','bakery','butcher_shop','clothing_store','book_store','travel_agency','funeral_home','cemetery','car_dealer',
     'real_estate_agency','insurance_agency','lawyer','doctor','dentist','pharmacy','hotel','gas_station'];
 begin
   -- Hints from the name only; anything with a hint is reviewed by a person.
   update mosque_candidates set community_hint = case
-      when name ~* 'jamat ?khana|ismaili' then 'ismaili'
-      when name ~* 'imambargah|imambara|husain|hussain|husayn|zainab|jafari|ja.fari|shia|ahlul ?bayt|abbas|panjtan|mehfil' then 'shia'
+      when name ~* 'jamat ?khana|ismaili|\mjk\M' then 'ismaili'
+      when name ~* 'imam ?barg|imambara|imam[ -]e[ -]zamana|wali ?ul ?asr|hoss?ain|husain|hussain|husayn|zainab|jafari|ja.fari|shia|ahlul ?bayt|abbas|panjtan|mehfil' then 'shia'
       when name ~* 'ahmadiyya|baitul islam|baitul hamd|bait-ul|baitur rahman|baitun nur' then 'ahmadiyya'
     end
   where status = 'new';
@@ -126,7 +126,8 @@ begin
   where status = 'new' and types && shops and not ('mosque' = any(types)) and coalesce(primary_type, '') <> 'mosque';
 
   update mosque_candidates set status = 'rejected', status_reason = 'not a place of worship, and no mosque word in the name'
-  where status = 'new' and not ('mosque' = any(types)) and not ('place_of_worship' = any(types)) and name !~* worship_name;
+  where status = 'new' and not ('mosque' = any(types)) and not ('place_of_worship' = any(types)) and name !~* worship_name
+    and not ('community_center' = any(types));   -- community centres often hold the prayers: reviewed below
 
   -- Possible duplicate: another mosque (known or candidate) within 75 m.
   -- (Between two new candidates side by side, the first by place_id goes on; the second is reviewed.)
@@ -146,6 +147,13 @@ begin
 
   update mosque_candidates set status = 'needs_review', status_reason = 'community hint: ' || community_hint
   where status = 'new' and community_hint is not null;
+
+  -- Typed as a mosque, but the name is an organization's (school, committee, convention, youth program, parking...)
+  -- with no prayer word in it: a person decides whether people pray there.
+  update mosque_candidates set status = 'needs_review', status_reason = 'typed as a mosque, but the name sounds like an organization'
+  where status = 'new' and ('mosque' = any(types) or primary_type = 'mosque')
+    and name ~* '(school|academy|institute|college|committee|council|convention|conference|youth|program|food bank|office|services|federation|parking|car wash|daycare|camp|store|book)'
+    and name !~* '(masjid|masjed|mosque|musall?ah?|jame?a?.? ?masjid|jamat ?khana|imambarg|imambara|islamic cent|prayer|salah|jumu?.?ah)';
 
   update mosque_candidates set status = 'accepted', status_reason = 'typed as a mosque on Google Maps'
   where status = 'new' and ('mosque' = any(types) or primary_type = 'mosque');

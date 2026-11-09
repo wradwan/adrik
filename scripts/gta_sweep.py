@@ -49,7 +49,8 @@ TEXT_CITIES = ["Toronto", "Scarborough", "North York", "Etobicoke", "Mississauga
 TEXT_PER_CITY = ["masjid", "musalla", "islamic centre"]
 TEXT_GTA_WIDE = ["jamatkhana", "imambargah", "islamic society", "muslim association", "dawah centre", "islamic institute",
                  "masjid prayer room", "musallah"]
-WORSHIP_NAME = re.compile(r"masjid|masjed|mosque|musall?ah?|jamat ?khana|jamaat|jama.?at|islamic|muslim|imambarg|imambara|husain|hussain|"
+WORSHIP_NAME = re.compile(r"masjid|masjed|mosque|musall?ah?|jamat ?khana|jamaat|jama.?at|islamic|muslim|imam ?barg|imambara|ismaili|imam[ -]e[ -]|"
+                          r"hoss?ain|husain|hussain|sufi|jerrahi|tekke|dergah|\bjk\b|"
                           r"zainab|zahra|zawiy|markaz|da.?wah|ummah|baitul|bait ul|madinah?|quba|taqwa|noor|salaa?m|tawh?eed|tawhid|"
                           r"furqan|huda|iman|ihsan|sunnah|deen|madrass?a", re.I)
 SHOP_TYPES = {"store", "grocery_store", "supermarket", "food_store", "convenience_store", "restaurant", "meal_takeaway", "cafe",
@@ -176,7 +177,7 @@ def looks_like_prayer_place(p):
         return True
     if types & SHOP_TYPES:
         return False
-    return "place_of_worship" in types or bool(WORSHIP_NAME.search(p.get("displayName", {}).get("text", "")))
+    return bool(types & {"place_of_worship", "community_center"}) or bool(WORSHIP_NAME.search(p.get("displayName", {}).get("text", "")))
 
 
 def sweep(g, log=print):
