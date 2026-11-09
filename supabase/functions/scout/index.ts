@@ -3,6 +3,7 @@
 // Modes (POST JSON):
 //   { mosque_id, force? }                      fetch the website here (collect.ts) and extract
 //   { mode: "targets" }                        list mosques that still need a browser read (trusted callers)
+//   { mode: "candidates", candidates: [...] }  load Google Maps sweep results into mosque_candidates (trusted)
 //   { mode: "ingest", mosque_id, url, text, images: [{ media_type, data }] }
 //                                              the Browser Scout (real browser, GitHub Actions) sends the
 //                                              rendered page text + screenshots; Claude reads both (trusted)
@@ -24,6 +25,8 @@
 // v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
 // v23: Jumu'ah-only places count as covered for the daily prayers: browser and computer readers re-read them every 3 days.
 // v24: Jumu'ah check (one start time shared by several slots is not a khutbah); a re-read replaces the month's Jumu'ah slots.
+// v25: mode "candidates" — the GTA Google Maps sweep loads what it found into mosque_candidates (migration 009), which
+//   classifies them and adds accepted ones as mosques that the rollout switches on a few at a time.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
@@ -350,6 +353,15 @@ Deno.serve(async (req) => {
     if (body.mode === "targets") {
       if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
       return Response.json(await browserTargets(db));
+    }
+
+    if (body.mode === "candidates") {   // docs/mosque_registry.md: the Google Maps sweep (scripts/gta_sweep.py) sends what it found
+      if (!await trusted(req, db)) return Response.json({ error: "not allowed" }, { status: 403 });
+      const items = Array.isArray(body.candidates) ? body.candidates : [];
+      if (!items.length || items.length > 500) return Response.json({ error: "send 1-500 candidates per call" }, { status: 400 });
+      const { data, error } = await db.rpc("upsert_candidates", { items });
+      if (error) return Response.json({ error: error.message }, { status: 500 });
+      return Response.json({ status: "ok", ...data });
     }
 
     const { data: m, error } = await db.from("mosques").select("*").eq("id", body.mosque_id).single();
