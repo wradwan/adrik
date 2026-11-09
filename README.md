@@ -10,7 +10,8 @@ Adrik reads mosques' published iqama times, works out which congregation you can
 - `supabase/functions/scout/` — the Scout: fetches a mosque website, extracts the iqama schedule with Claude (strict JSON tool call), validates, upserts. Runs nightly via pg_cron.
 - `supabase/functions/guide/` — the decision engine: adhan calculation (adhan-js), candidates in radius, ETA (Google Routes or distance estimate), feasibility + ranking, rolls forward to the next prayer when every jama'ah has passed.
 - `web/index.html` — the Now card prototype. Static page; calls `guide` with the public anon key.
-- `docs/` — design notes and the Scout extraction spec.
+- `scripts/gta_sweep.py` — finds every mosque in the GTA on Google Maps and loads them as candidates (see `docs/mosque_registry.md`).
+- `docs/` — design notes and the Scout extraction spec; `docs/mosque_registry.md` is the GTA rollout plan.
 
 ## Setup
 
@@ -24,7 +25,7 @@ supabase functions deploy scout
 supabase functions deploy guide
 ```
 
-Migrations 001–005 are already applied to the linked project. For a fresh project: `supabase db push`.
+Migrations 001–008 are already applied (009, the mosque registry, is new: `supabase db push`) to the linked project. For a fresh project: `supabase db push`.
 
 ## Run the web page locally
 

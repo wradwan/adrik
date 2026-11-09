@@ -8,3 +8,4 @@ docs/*.xlsx
 # Browser Scout local files
 scripts/browser-scout/node_modules
 scripts/browser-scout/out/
+scripts/out/
