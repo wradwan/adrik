@@ -391,7 +391,10 @@ Deno.serve(async (req) => {
       const intro = shot ? `A community member sent this screenshot of ${m.name}'s own website (${body.url ?? m.website ?? "site"}), taken ${body.taken ?? today}. ${text}`
         : pc ? `This site refuses automated readers, so it was read in a person's own Chrome on their computer. Below is the rendered text of the prayer-time block(s) the page showed (after clicking any "prayer times" opener), then any Jumu'ah lines on the page.\n\n${text}`
         : text;
-      const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
+      // Rule shown-date: a screenshot shows the day it was taken, so it is read as of that day (a dated block like
+      // "Friday Prayers, November 6" is still ahead in a 4 Nov screenshot, even when the fixture is re-read later).
+      const asOf = shot && /^\d{4}-\d{2}-\d{2}$/.test(String(body.taken ?? "")) ? String(body.taken) : today;
+      const out = await extract(intro, label(m), asOf, { images, docs }, !shot && !pc);
       checkMaghrib(m, out);
       checkJumuah(out);
       if (body.dry) {   // test fixture: read with every rule, write nothing
