@@ -51,7 +51,8 @@ async function authHeaders() {
 }
 
 async function call(body) {
-  const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, ...(await authHeaders()) }, body: JSON.stringify(body) });
+  // Rule time-limits: a Scout call that does not answer within 200 s is abandoned (the function itself stops at ~150 s).
+  const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, ...(await authHeaders()) }, body: JSON.stringify(body), signal: AbortSignal.timeout(200_000) });
   const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
   if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
   return j;
@@ -225,8 +226,34 @@ async function readPage(page, url, out) {
   return page.$$eval("a[href]", (as) => as.map((a) => ({ href: a.href, text: (a.innerText || a.title || "").trim().slice(0, 80) })));
 }
 
-async function capture(browser, site) {
+// Rule time-limits: one site may take at most SITE_LIMIT_S seconds in the browser; a site that stalls (it hung the
+// whole daily run for 43 minutes from GitHub's network) is closed and left for the next run.
+const SITE_LIMIT_MS = Number(process.env.SCOUT_SITE_LIMIT_S ?? 150) * 1000;
+async function captureLimited(browser, site) {
+  const box = {};
+  let timer;
+  const stop = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`stalled: no result after ${SITE_LIMIT_MS / 1000}s — left for the next run`)), SITE_LIMIT_MS); });
+  try { return await Promise.race([capture(browser, site, box), stop]); }
+  finally { clearTimeout(timer); await box.ctx?.close().catch(() => {}); }
+}
+// Images Claude refuses (wider or taller than 8000 px) are dropped before sending; JPEG/PNG sizes read from the header.
+function imageSize(buf) {
+  if (buf[0] === 0x89 && buf[1] === 0x50) return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    for (let i = 2; i < buf.length - 9;) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const m = buf[i + 1], len = buf.readUInt16BE(i + 2);
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return [buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5)];
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+const fits = (im) => { const d = imageSize(Buffer.from(im.data, "base64")); return !d || (d[0] <= 7900 && d[1] <= 7900); };
+
+async function capture(browser, site, box = {}) {
   const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1.5, locale: "en-CA", timezoneId: "America/Toronto" });
+  box.ctx = ctx;
   const page = await ctx.newPage();
   const out = { text: [], images: [], pages: [site] };
   try {
@@ -251,7 +278,9 @@ async function capture(browser, site) {
       if (buf) out.images.push({ media_type: "image/jpeg", data: buf.toString("base64"), why: "top of home page" });
     }
   } finally { await ctx.close(); }
-  return { text: out.text.join("\n\n").slice(0, 110_000), images: out.images, pages: out.pages };
+  const images = out.images.filter(fits);
+  if (images.length < out.images.length) out.text.push(`(${out.images.length - images.length} screenshot(s) larger than 8000 px left out)`);
+  return { text: out.text.join("\n\n").slice(0, 110_000), images, pages: out.pages };
 }
 
 // Compare what Claude extracted with an answer key (times "HH:MM"; rules "sunset", "sunset+3", "adhan+5").
@@ -312,7 +341,11 @@ try {
   }
   else {
     const t = await call({ mode: "targets" });
-    targets = t.targets;
+    // Rule daily-targets: least recently read first (never-read first), Sunni first, so a long list is worked through in
+    // turn instead of always from the top of the alphabet; at most SCOUT_MAX_READS reads per run (cost cap).
+    targets = t.targets.sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || String(a.last_browser ?? "").localeCompare(String(b.last_browser ?? "")));
+    const max = Number(process.env.SCOUT_MAX_READS ?? 40);
+    if (targets.length > max) { console.log(`Browser Scout: ${targets.length} due, reading the ${max} least recently read (the rest wait for the next run)`); targets = targets.slice(0, max); }
     for (const b of t.blocked ?? []) console.log(`• ${b.name}: skipped — ${b.reason} (since ${String(b.since).slice(0, 10)})`);
   }
   console.log(`Browser Scout: ${targets.length} mosque(s)`);
@@ -323,10 +356,13 @@ try {
     if (diffs.length) fails++;
     console.log(`${line}\n    ${diffs.length ? "✗ " + diffs.join("\n    ✗ ") : "✓ matches the answer key"}`);
   };
-  for (const t of targets) {
+  // Rule time-limits: stop starting new reads after RUN_BUDGET minutes so the job ends cleanly before GitHub's limit.
+  const runStart = Date.now(), RUN_BUDGET_MS = Number(process.env.SCOUT_RUN_BUDGET_MIN ?? 38) * 60_000;
+  for (const [n, t] of targets.entries()) {
+    if (!flag("--check") && Date.now() - runStart > RUN_BUDGET_MS) { console.log(`Browser Scout: time budget reached — ${targets.length - n} left for the next run`); break; }
     const t0 = Date.now();
     try {
-      const cap = await capture(browser, t.website);
+      const cap = await captureLimited(browser, t.website);
       const live = (k) => k.mosque_id === t.id && !k.image && !k.doc;
       const keyFor = (d) => keys.keys.find((k) => live(k) && d >= k.valid_from && d <= k.valid_to) ?? keys.keys.find(live);
       if (cap.blocked) {
