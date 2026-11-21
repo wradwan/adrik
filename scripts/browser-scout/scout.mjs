@@ -342,9 +342,9 @@ try {
   else {
     const t = await call({ mode: "targets" });
     // Rule daily-targets: least recently read first (never-read first), Sunni first, so a long list is worked through in
-    // turn instead of always from the top of the alphabet; at most SCOUT_MAX_READS reads per run (cost cap).
+    // turn instead of always from the top of the alphabet; at most SCOUT_MAX_READS reads per run (cost cap; 150 covers the whole GTA list).
     targets = t.targets.sort((a, b) => Number(a.community !== "sunni") - Number(b.community !== "sunni") || String(a.last_browser ?? "").localeCompare(String(b.last_browser ?? "")));
-    const max = Number(process.env.SCOUT_MAX_READS ?? 40);
+    const max = Number(process.env.SCOUT_MAX_READS ?? 150);
     if (targets.length > max) { console.log(`Browser Scout: ${targets.length} due, reading the ${max} least recently read (the rest wait for the next run)`); targets = targets.slice(0, max); }
     for (const b of t.blocked ?? []) console.log(`• ${b.name}: skipped — ${b.reason} (since ${String(b.since).slice(0, 10)})`);
   }
@@ -358,8 +358,11 @@ try {
   };
   // Rule time-limits: stop starting new reads after RUN_BUDGET minutes so the job ends cleanly before GitHub's limit.
   const runStart = Date.now(), RUN_BUDGET_MS = Number(process.env.SCOUT_RUN_BUDGET_MIN ?? 38) * 60_000;
-  for (const [n, t] of targets.entries()) {
-    if (!flag("--check") && Date.now() - runStart > RUN_BUDGET_MS) { console.log(`Browser Scout: time budget reached — ${targets.length - n} left for the next run`); break; }
+  // Rule parallel-reads: daily runs read SCOUT_CONCURRENCY sites at once (each in its own browser context), so the
+  // whole GTA list fits in one run; the answer-key check stays one at a time so its log reads in order.
+  const WORKERS = flag("--check") ? 1 : Math.max(1, Number(process.env.SCOUT_CONCURRENCY ?? 4));
+  let next = 0, skipped = 0;
+  const readOne = async (t) => {
     const t0 = Date.now();
     try {
       const cap = await captureLimited(browser, t.website);
@@ -372,7 +375,7 @@ try {
         // Rule key-vs-site: a bot check where the key expects times is a change on the site's side, reported as a warning.
         if (flag("--check")) { const key = keyFor(today); verdict(line, key, [], key.expect === "bot check" ? undefined : "the site now shows a bot check to this reader — not a reading failure; the computer reader or a screenshot covers it (rule key-vs-site)"); }
         else console.log(line);
-        continue;
+        return;
       }
       if (flag("--dry")) {
         await mkdir("out", { recursive: true });
@@ -380,21 +383,28 @@ try {
         await writeFile(`out/${slug}.txt`, cap.text);
         for (const [i, im] of cap.images.entries()) await writeFile(`out/${slug}_${i}.jpg`, Buffer.from(im.data, "base64"));
         console.log(`• ${t.website}: ${cap.text.length} chars, ${cap.images.length} image(s) [${cap.images.map((i) => i.why).join("; ")}] in ${Date.now() - t0} ms`);
-        continue;
+        return;
       }
       const res = await call({ mode: "ingest", mosque_id: t.id, url: t.website, text: cap.text, images: cap.images.map(({ media_type, data }) => ({ media_type, data })) });
       const line = `• ${t.name ?? t.id}: ${res.rows} rows, ${res.rules} rules, ${res.jumuah} jumu'ah, confidence ${res.confidence}, ${cap.images.length} image(s), ${Math.round((Date.now() - t0) / 1000)}s` +
         (res.stored_as && res.stored_as !== "iqama" ? ` — ${res.stored_as}` : "");
       if (flag("--check")) {
         const d = res.resolved_today?.date, key = keyFor(d);
-        if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); continue; }
-        if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); continue; }
+        if (!(d >= key.valid_from && d <= key.valid_to)) { verdict(line, key, [], `key covers ${key.valid_from}..${key.valid_to}; today is ${d} — send a fresh screenshot (rule daily-keys-expire)`); return; }
+        if (key.expect === "bot check") { record(key, "stale"); console.log(`${line}\n    ⚠ the site no longer shows a bot check — add a times key from a screenshot`); return; }
         verdict(line, key, key.expect === "jumuah only" ? compare(key, res.resolved_today).concat(res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["daily times were stored for a Jumu'ah-only place"] : [])
           : key.expect === "held back" ? (res.stored_as === "iqama" && res.rows + res.rules > 0 ? ["adhan-only page was stored as iqama"] : []).concat(compare({ jumuah: key.jumuah }, res.resolved_today))
           : compare(key, res.resolved_today).concat(res.stored_as && res.stored_as !== "iqama" ? [`stored as ${res.stored_as}`] : []));
       } else console.log(line);
     } catch (e) { fails++; console.log(`• ${t.name ?? t.website}: ERROR ${String(e).slice(0, 200)}`); }
-  }
+  };
+  await Promise.all(Array.from({ length: WORKERS }, async () => {
+    while (next < targets.length) {
+      if (!flag("--check") && Date.now() - runStart > RUN_BUDGET_MS) { skipped = targets.length - next; next = targets.length; break; }
+      await readOne(targets[next++]);
+    }
+  }));
+  if (skipped) console.log(`Browser Scout: time budget reached — ${skipped} left for the next run`);
   // Fixtures: screenshots ("image") and timetable PDFs ("doc") a community member sent, re-read every check with all
   // the rules, writing nothing (dry run).
   if (flag("--check")) for (const key of keys.keys.filter((k) => (k.image || k.doc) && chosen(k))) {
