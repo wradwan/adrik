@@ -105,7 +105,7 @@
       "mosque_id": "e45257ef-fad1-44da-ad04-8ccd4b3402c5",
       "url": "https://rahmatmasjid.com/",
       "valid_from": "2026-11-02",
-      "valid_to": "2026-11-30",
+      "valid_to": "2026-11-20",
       "from": "screenshot 2 Nov (Jamaat Timings box)",
       "times": {
         "fajr": "06:00",
@@ -135,7 +135,7 @@
       "mosque_id": "c0c69b93-d8a4-46af-96c6-60be42a5609c",
       "url": "https://alhassan.ca/",
       "valid_from": "2026-11-01",
-      "valid_to": "2026-11-30",
+      "valid_to": "2026-11-10",
       "from": "screenshot 2 Nov (Effective Nov 1 - 30)",
       "times": {
         "fajr": "06:15",
@@ -186,7 +186,7 @@
       "mosque_id": "38715cce-ba2d-4195-842a-1877005d173b",
       "url": "https://mawaqit.net/en/m/anatolia-islamic-centre-mississauga-l4w-1g5-canada?view=mobile",
       "valid_from": "2026-11-01",
-      "valid_to": "2026-11-29",
+      "valid_to": "2026-11-14",
       "from": "screenshot 2 Nov (Mawaqit widget)",
       "times": {
         "fajr": "06:00",
@@ -785,6 +785,110 @@
         "jumuah-other-venue",
         "jumuah-start-iqamah"
       ]
+    },
+    {
+      "name": "Masjid Rahmatul-lil-Alameen",
+      "mosque_id": "e45257ef-fad1-44da-ad04-8ccd4b3402c5",
+      "url": "https://rahmatmasjid.com/",
+      "jumuah": [
+        {
+          "khutbah": "12:30",
+          "salah": "13:00"
+        },
+        {
+          "khutbah": "13:30",
+          "salah": "14:00"
+        }
+      ],
+      "rules": [
+        "arrow-change",
+        "rules-beat-tables",
+        "jumuah-start-iqamah"
+      ],
+      "valid_from": "2026-11-21",
+      "valid_to": "2026-11-21",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:40",
+        "asr": "15:15",
+        "maghrib": "sunset+3",
+        "isha": "19:00"
+      },
+      "from": "rahmatmasjid.com 'Jamaat Timings' box for November 21, 2026, as rendered 21 Nov (Fajr 6:15, Zuhr 1:40, Asr 3:15, Maghrib sunset + 3, Isha 7:00; Jumma 12:30/1:00 and 1:30/2:00)."
+    },
+    {
+      "name": "Al Hassan Community Centre",
+      "mosque_id": "c0c69b93-d8a4-46af-96c6-60be42a5609c",
+      "url": "https://alhassan.ca/",
+      "rules": [
+        "date-range-block",
+        "rules-beat-tables",
+        "jumuah-start-iqamah"
+      ],
+      "valid_from": "2026-11-11",
+      "valid_to": "2026-11-30",
+      "times": {
+        "fajr": "06:15",
+        "asr": "15:45",
+        "isha": "19:30"
+      },
+      "from": "alhassan.ca 'Al Hassan IQAMA times — Effective: November 11 2026 – November 30 2026' (Fajr 6:15 AM, Asr 3:45 PM, Isha 7:30 PM, Jumma iqama 2:00 PM), as rendered 21 Nov."
+    },
+    {
+      "name": "Anatolia Islamic Centre",
+      "mosque_id": "38715cce-ba2d-4195-842a-1877005d173b",
+      "url": "https://mawaqit.net/en/m/anatolia-islamic-centre-mississauga-l4w-1g5-canada?view=mobile",
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        }
+      ],
+      "rules": [
+        "mawaqit-offset",
+        "rules-beat-tables",
+        "widget-iframes"
+      ],
+      "valid_from": "2026-11-15",
+      "valid_to": "2026-11-20",
+      "times": {
+        "fajr": "06:15",
+        "dhuhr": "13:30",
+        "asr": "adhan+5",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "from": "Anatolia's Mawaqit iqama calendar (confData), read 21 Nov: Fajr 06:15 for 11-15..11-20; the rest unchanged."
+    },
+    {
+      "name": "Anatolia Islamic Centre",
+      "mosque_id": "38715cce-ba2d-4195-842a-1877005d173b",
+      "url": "https://mawaqit.net/en/m/anatolia-islamic-centre-mississauga-l4w-1g5-canada?view=mobile",
+      "jumuah": [
+        {
+          "khutbah": "12:30"
+        },
+        {
+          "khutbah": "13:30"
+        }
+      ],
+      "rules": [
+        "mawaqit-offset",
+        "rules-beat-tables",
+        "widget-iframes"
+      ],
+      "valid_from": "2026-11-21",
+      "valid_to": "2026-11-29",
+      "times": {
+        "fajr": "06:30",
+        "dhuhr": "13:30",
+        "asr": "adhan+5",
+        "maghrib": "sunset+3",
+        "isha": "19:30"
+      },
+      "from": "Anatolia's Mawaqit iqama calendar (confData), read 21 Nov: Fajr 06:30 for 11-21..11-29; the rest unchanged."
     }
   ]
 }

@@ -25,6 +25,7 @@
 // v22: the plain reader also finds day-by-day timetables compiled into the site's own script bundle (rule bundle-timetables).
 // v23: Jumu'ah-only places count as covered for the daily prayers: browser and computer readers re-read them every 3 days.
 // v24: Jumu'ah check (one start time shared by several slots is not a khutbah); a re-read replaces the month's Jumu'ah slots.
+// v25: a screenshot is read as of the day it was taken (body.taken), so dated blocks in old fixtures keep their meaning.
 // v25: mode "candidates" — the GTA Google Maps sweep loads what it found into mosque_candidates (migration 009), which
 //   classifies them and adds accepted ones as mosques that the rollout switches on a few at a time.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -391,7 +392,10 @@ Deno.serve(async (req) => {
       const intro = shot ? `A community member sent this screenshot of ${m.name}'s own website (${body.url ?? m.website ?? "site"}), taken ${body.taken ?? today}. ${text}`
         : pc ? `This site refuses automated readers, so it was read in a person's own Chrome on their computer. Below is the rendered text of the prayer-time block(s) the page showed (after clicking any "prayer times" opener), then any Jumu'ah lines on the page.\n\n${text}`
         : text;
-      const out = await extract(intro, label(m), today, { images, docs }, !shot && !pc);
+      // Rule shown-date: a screenshot shows the day it was taken, so it is read as of that day (a "Friday Prayers,
+      // November 6" block in a 4 Nov screenshot is still ahead, even when the fixture is re-read weeks later).
+      const asOf = shot && /^\d{4}-\d{2}-\d{2}$/.test(String(body.taken ?? "")) ? String(body.taken) : today;
+      const out = await extract(intro, label(m), asOf, { images, docs }, !shot && !pc);
       checkMaghrib(m, out);
       checkJumuah(out);
       if (body.dry) {   // test fixture: read with every rule, write nothing
